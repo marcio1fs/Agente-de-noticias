@@ -30,7 +30,7 @@ def script_for(project: ContentProject, is_vertical: bool):
 
 def fingerprint_for(project: ContentProject, is_vertical: bool):
     return hashlib.sha256(json.dumps(
-        ["relevance_v2", project.headline, script_for(project, is_vertical),
+        ["relevance_v3_no_headline_box", project.headline, script_for(project, is_vertical),
          "vertical" if is_vertical else "horizontal"], ensure_ascii=False
     ).encode()).hexdigest()
 

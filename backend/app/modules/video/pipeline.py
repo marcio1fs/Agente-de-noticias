@@ -316,7 +316,6 @@ $syn.Dispose()
 
         head_lines = self._wrap(title_text.upper(), head_wrap, 4)
         card_y = tag_y + tag_h + 40
-        card_h = len(head_lines) * (head_fs + 16) + 60
         head_path = write_txt("head", "\n".join(head_lines))
         tag_path = write_txt("tag", "NOTÍCIAS  |  IMAGENS ILUSTRATIVAS")
         tick_path = write_txt("tick", "AGENTE AUTÔNOMO DE NOTÍCIAS   •   INFORMAÇÃO VERIFICADA EM TEMPO REAL   •   " + title_text + "   •   ")
@@ -345,8 +344,6 @@ $syn.Dispose()
             f"drawbox=x=0:y=tag_y:w=iw:h={tag_h}:color=0xDC2626:t=fill".replace("tag_y", str(tag_y)),
             f"drawbox=x={margin}:y={tag_y + tag_h // 2 - 9}:w=18:h=18:color=white:t=fill:enable='lt(mod(t,1.2),0.7)'",
             f"drawtext={bold_opt}textfile='{tag_path}':fontcolor=white:fontsize={tag_fs}:x={margin + 40}:y={tag_y + (tag_h - tag_fs) // 2 - 2}",
-            f"drawbox=x={margin}:y={card_y}:w=iw-{margin * 2}:h={card_h}:color=0x0F172A@0.82:t=fill",
-            f"drawbox=x={margin}:y={card_y}:w=12:h={card_h}:color=0x38BDF8:t=fill",
             f"drawtext={bold_opt}textfile='{head_path}':fontcolor=white:fontsize={head_fs}:line_spacing=16:"
             f"x={margin + 44}:y={card_y + 30}:alpha='min(1,t/0.7)'",
         ] + cap_filters + [
@@ -486,10 +483,7 @@ $syn.Dispose()
                 # Tarja superior vermelha de 'URGENTE // NOTÍCIA VERIFICADA'
                 f"drawbox=y=80:color=0xDC2626:width=iw:height=70:t=fill",
                 f"drawtext={font_opt}text='URGENTE  //  NOTÍCIA VERIFICADA':fontcolor=white:fontsize={banner_size}:x=(w-text_w)/2:y=100",
-                # Caixa de fundo para a manchete
-                f"drawbox=x=60:y=(h/2)-200:w=iw-120:h=400:color=0x1E293B@0.85:t=fill",
-                # Borda sutil azul
-                f"drawbox=x=60:y=(h/2)-200:w=iw-120:h=400:color=0x38BDF8:t=4",
+                # Manchete sem caixa de fundo ou borda azul.
                 # Manchete principal
                 f"drawtext={font_opt}textfile='{safe_title_path}':fontcolor=0xFFFFFF:fontsize={font_size}:x=(w-text_w)/2:y=(h-text_h)/2-30:line_spacing=18",
                 # Rodapé de crédito editorial
