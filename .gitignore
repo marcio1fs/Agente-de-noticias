@@ -1,36 +1,81 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Ambientes e Variáveis sensíveis
+.env
+.env*.local
+*.env
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# testing
-/coverage
+# Ambientes virtuais
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# Node / Frontend
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
+dist/
+.next/
+out/
 
-# local env files
-.env*.local
-.env
+# IDE e Sistema Operacional
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# vercel
-.vercel
+# Logs e Arquivos temporários / Mídia gerada / Banco local
+*.db
+*.sqlite
+*.sqlite3
+storage/
+backend/storage/
+logs/
+*.log
+output/
+temp/
+tmp/
+*.mp4
+*.mp3
+*.wav
+*.png
+*.jpg
+*.jpeg
+!frontend/public/**
+!frontend/src/assets/**
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Testes e cobertura
+.pytest_cache/
+.coverage
+htmlcov/
