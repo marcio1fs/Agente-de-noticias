@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 
 from app.core.config import settings
 from app.modules.video.stock_provider import SafeStockVideoProvider
+from app.modules.video.speech_text import normalize_speech_text
 
 class VideoProductionPipeline:
     """
@@ -63,7 +64,7 @@ class VideoProductionPipeline:
                 except Exception as ex:
                     print(f"[Video Pipeline] Erro ao carregar voz customizada: {ex}")
 
-        clean_text = " ".join(text.split())
+        clean_text = normalize_speech_text(text)
         if not clean_text:
             clean_text = "Notícia apurada e verificada pelo agente autônomo de inteligência artificial."
 
