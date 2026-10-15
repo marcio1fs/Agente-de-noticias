@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.publishing.attribution import validated_source_url, with_source
 from app.core.config import settings
 from app.models.entities import NewsItem, ContentProject, ProcessingStatus
 
@@ -162,6 +163,21 @@ class ContentProductionEngine:
         if not llm_content:
             llm_content = self._fallback_generation(item)
 
+        # Persist attribution in captions too, regardless of whether the LLM
+        # included a citation. Final dispatch re-resolves the original DB URL.
+        captions = llm_content.get("social_captions", {})
+        captions = dict(captions) if isinstance(captions, dict) else {}
+        source_url = validated_source_url(item.url)
+        if source_url:
+            for platform in ("youtube", "instagram", "twitter"):
+                limit = {"youtube": 5000, "instagram": 2200, "twitter": 280}[platform]
+                try:
+                    captions[platform] = with_source(captions.get(platform, ""), source_url, limit)
+                except ValueError:
+                    # Never invent/shorten the original URL. Keep it available
+                    # for editorial review even if a future platform rejects it.
+                    captions[platform] = with_source(captions.get(platform, ""), source_url)
+
         project = ContentProject(
             news_item_id=item.id,
             category_id=item.category_id,
@@ -170,7 +186,7 @@ class ContentProductionEngine:
             full_article=llm_content.get("editorial_summary", ""),
             script_youtube_long=llm_content.get("long_script", ""),
             script_short_vertical=llm_content.get("short_script", ""),
-            social_captions=llm_content.get("social_captions", {}),
+            social_captions=captions,
             status=ProcessingStatus.PRODUCING,
             requires_human_approval=(item.status == ProcessingStatus.APPROVAL_REQUIRED)
         )

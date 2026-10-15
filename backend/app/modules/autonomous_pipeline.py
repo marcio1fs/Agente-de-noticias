@@ -109,7 +109,7 @@ class AutonomousNewsPipeline:
                     self.db.add(job)
                     await self.db.flush()
 
-                    dispatcher = PublishingDispatcher(acc)
+                    dispatcher = PublishingDispatcher(acc, db=self.db)
                     dispatch_res = await dispatcher.publish(job, project)
                     published_dests.append({
                         "platform": acc.platform,

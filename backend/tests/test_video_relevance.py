@@ -132,7 +132,11 @@ async def test_unimplemented_platform_not_reported_as_published(monkeypatch):
     account = PublishingAccount(platform="INSTAGRAM", account_name="test", is_paused=False,
                                 posts_today=0, daily_post_limit=5, encrypted_credentials="")
     job = PublishingJob(id="job", status=ProcessingStatus.READY_TO_PUBLISH)
-    result = await PublishingDispatcher(account).publish(job, ContentProject())
+    db = AsyncMock()
+    from app.models.entities import NewsItem
+    db.get.return_value = NewsItem(url="https://example.com/news")
+    result = await PublishingDispatcher(account, db=db).publish(job, ContentProject(news_item_id="news"))
+    assert result["reason"] == "PUBLISHER_NOT_CONFIGURED"
     assert result["success"] is False
     assert job.status == ProcessingStatus.FAILED
     assert account.posts_today == 0

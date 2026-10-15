@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Video, RefreshCw, Send, Eye } from "lucide-react";
 
 type News = { project_id: string; title: string; summary?: string };
-type Preview = { headline: string; summary: string; ready: boolean; video_url: string | null };
+type Preview = { headline: string; summary: string; ready: boolean; video_url: string | null; source_url: string | null; publication_description: string | null };
 type Props = {
   items: News[];
   selectedId: string;
@@ -78,6 +78,12 @@ export default function NewsPreview({ items, selectedId, onSelect, refreshKey, m
             </div>
             <h3 className="text-sm font-bold text-white leading-snug">{preview?.headline || item?.title}</h3>
             <p className="text-xs text-slate-400 whitespace-pre-line max-h-24 overflow-y-auto">{preview?.summary || item?.summary}</p>
+            {preview && (preview.source_url ? (
+              <div className="text-xs space-y-2">
+                <a href={preview.source_url} target="_blank" rel="noopener noreferrer" className="text-sky-400 underline break-all">Fonte original: {preview.source_url}</a>
+                <details className="text-slate-400"><summary className="cursor-pointer">Descrição que será publicada no YouTube</summary><p className="mt-2 whitespace-pre-wrap max-h-32 overflow-y-auto">{preview.publication_description}</p></details>
+              </div>
+            ) : <p role="alert" className="text-xs text-red-300">A notícia está sem link de fonte válido. A publicação ficará bloqueada.</p>)}
             <p className="text-[11px] text-slate-500">Imagens de banco são ilustrativas, não uma comprovação visual do acontecimento.</p>
             {mode === "AUTONOMOUS" && <p className="text-xs text-amber-300">O modo Autônomo pode publicar sem aguardar sua revisão. Use o modo Assistido para revisar antes do envio.</p>}
             {!vertical && <p className="text-xs text-amber-300">O envio atual utiliza 9:16. Selecione e revise essa versão para publicar.</p>}
@@ -85,7 +91,7 @@ export default function NewsPreview({ items, selectedId, onSelect, refreshKey, m
             <div className="flex flex-wrap gap-3 items-center">
               <button type="button" disabled={busy || loading} onClick={() => onRender(selectedId, vertical)} className="px-3 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg text-xs font-bold disabled:opacity-50">{busy ? "Processando…" : preview?.ready ? "Abrir vídeo gerado" : "Gerar prévia do vídeo"}</button>
               <label className="text-xs text-slate-300 flex items-center gap-2"><input type="checkbox" checked={reviewed} disabled={!playable || !vertical || busy || loading} onChange={(e) => setReviewed(e.target.checked)} /> Revisei esta notícia e este vídeo</label>
-              <button type="button" disabled={!reviewed || !playable || !vertical || busy || loading || stopped} onClick={() => { setReviewed(false); onPublish(selectedId); }} className="flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"><Send className="w-3.5 h-3.5" />{mode === "SIMULATION" ? "Simular publicação" : "Confirmar publicação"}</button>
+              <button type="button" disabled={!reviewed || !playable || !vertical || !preview?.source_url || busy || loading || stopped} onClick={() => { setReviewed(false); onPublish(selectedId); }} className="flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"><Send className="w-3.5 h-3.5" />{mode === "SIMULATION" ? "Simular publicação" : "Confirmar publicação"}</button>
             </div>
             {stopped && <p className="text-xs text-red-300">Publicação bloqueada pela parada de emergência.</p>}
           </div>

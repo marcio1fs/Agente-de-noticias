@@ -125,3 +125,18 @@ configure `BACKEND_URL` no ambiente do servidor frontend (por exemplo,
 O vídeo é servido por endpoint dedicado com suporte a busca por trecho (HTTP Range).
 Prévia e upload reutilizam o mesmo render validado; se manchete ou roteiro mudar,
 é necessário gerar a prévia novamente. É necessário FFmpeg no backend.
+
+
+## 8. Link automático da fonte
+
+A descrição enviada ao YouTube começa com **Fonte da notícia original: URL**.
+O endereço vem diretamente da notícia coletada no banco (`NewsItem.url`), não da
+resposta da IA. O link também é incluído nas legendas geradas e aparece no quadro
+de prévia, junto à descrição que será enviada ao YouTube. A fonte é preservada
+mesmo quando a descrição precisa ser truncada para caber no limite da plataforma.
+
+Notícias sem URL HTTP/HTTPS válida têm a publicação bloqueada, inclusive na
+simulação. Projetos antigos vinculados a uma notícia válida recebem a fonte no
+próximo envio, sem precisar gerar novamente o texto. Posts já publicados não são
+editados retroativamente. A integração real atual continua sendo apenas YouTube;
+legendas preparadas para outras redes não significam publicação nessas redes.

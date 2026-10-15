@@ -29,6 +29,7 @@ from app.modules.content.engine import ContentProductionEngine
 from app.modules.video.pipeline import VideoProductionPipeline
 from app.modules.video.preview import cached_video, render_preview, fingerprint_for, script_for
 from app.modules.publishing.dispatcher import PublishingDispatcher
+from app.modules.publishing.attribution import project_source_url, youtube_description
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -362,10 +363,13 @@ async def get_content_preview(project_id: str, is_vertical: bool = True, db: Asy
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
     ready = cached_video(project, is_vertical) is not None
+    source_url = await project_source_url(project, db)
     return {
         "project_id": project.id,
         "headline": project.headline,
         "summary": project.editorial_summary,
+        "source_url": source_url,
+        "publication_description": youtube_description(project, source_url) if source_url else None,
         "requires_human_approval": project.requires_human_approval,
         "ready": ready,
         "video_url": (f"/api/v1/content-projects/{project.id}/preview/video?is_vertical={str(is_vertical).lower()}&v={fingerprint_for(project, is_vertical)}" if ready else None),
@@ -408,7 +412,7 @@ async def publish_content(project_id: str, db: AsyncSession = Depends(get_db)):
         db.add(job)
         await db.commit()
 
-        dispatcher = PublishingDispatcher(acc)
+        dispatcher = PublishingDispatcher(acc, db=db)
         dispatch_res = await dispatcher.publish(job, project)
         await db.commit()
         published_results.append({

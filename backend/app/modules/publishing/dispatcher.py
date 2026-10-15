@@ -7,10 +7,12 @@ from app.core.security import decrypt_secret
 from app.models.entities import PublishingAccount, PublishingJob, ContentProject, ProcessingStatus
 from app.modules.publishing.youtube import YouTubePublisher
 from app.modules.video.preview import render_preview
+from app.modules.publishing.attribution import project_source_url, youtube_description
 
 class PublishingDispatcher:
-    def __init__(self, account: PublishingAccount):
+    def __init__(self, account: PublishingAccount, db=None):
         self.account = account
+        self.db = db
 
     def get_decrypted_token(self) -> str:
         """Descriptografa com segurança os tokens da plataforma em memória."""
@@ -50,6 +52,13 @@ class PublishingDispatcher:
             job.error_message = f"Limite diário de {self.account.daily_post_limit} publicações atingido."
             return {"success": False, "reason": "DAILY_LIMIT_REACHED"}
 
+        source_url = await project_source_url(project, self.db)
+        if not source_url:
+            job.status = ProcessingStatus.FAILED
+            job.error_message = "Publicação bloqueada: notícia original sem link de fonte válido."
+            return {"success": False, "reason": "SOURCE_URL_MISSING", "error": job.error_message}
+        description = youtube_description(project, source_url)
+
         # Identificador único seguro para o job
         job_key = (job.id[:8] if job.id else getattr(job, "idempotency_key", "job")[:8])
 
@@ -63,6 +72,8 @@ class PublishingDispatcher:
             return {
                 "success": True,
                 "mode": "SIMULATION",
+                "source_url": source_url,
+                "description": description,
                 "post_id": job.platform_post_id,
                 "url": job.post_url
             }
@@ -75,11 +86,7 @@ class PublishingDispatcher:
             try:
                 # Prepara título e descrição
                 title = project.headline or "Notícia Verificada"
-                desc = (
-                    f"{project.editorial_summary or ''}\n\n"
-                    f"{project.social_captions.get('youtube', '') if isinstance(project.social_captions, dict) else ''}\n\n"
-                    f"#noticias #urgente #jornalismo"
-                ).strip()
+                desc = description
 
                 video_file = await asyncio.to_thread(self._find_or_create_video, project)
                 # Rendering can take minutes; recheck safety before network upload.
@@ -109,6 +116,7 @@ class PublishingDispatcher:
                     return {
                         "success": True,
                         "mode": "PRODUCTION",
+                        "source_url": source_url,
                         "post_id": job.platform_post_id,
                         "url": job.post_url
                     }
