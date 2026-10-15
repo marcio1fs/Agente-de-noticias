@@ -1,12 +1,12 @@
 import os
-import glob
+import asyncio
 from datetime import datetime
 from typing import Dict, Any
 from app.core.config import settings
 from app.core.security import decrypt_secret
 from app.models.entities import PublishingAccount, PublishingJob, ContentProject, ProcessingStatus
 from app.modules.publishing.youtube import YouTubePublisher
-from app.modules.video.pipeline import VideoProductionPipeline
+from app.modules.video.preview import render_preview
 
 class PublishingDispatcher:
     def __init__(self, account: PublishingAccount):
@@ -18,21 +18,7 @@ class PublishingDispatcher:
 
     def _find_or_create_video(self, project: ContentProject) -> str:
         """Localiza arquivo de vídeo renderizado para o projeto ou gera com o pipeline FFmpeg."""
-        pattern = os.path.join(settings.VIDEO_DIR, f"video_{project.id}_*.mp4")
-        matches = glob.glob(pattern)
-        if matches:
-            return matches[0]
-
-        # Se ainda não foi gerado, renderiza com gráficos e narração
-        pipeline = VideoProductionPipeline()
-        script = project.script_short_vertical or project.script_youtube_long or project.editorial_summary
-        result = pipeline.render_mock_or_ffmpeg(
-            project.id,
-            is_vertical=True,
-            headline=project.headline,
-            script_text=script
-        )
-        return result["file_path"]
+        return render_preview(project, is_vertical=True)
 
 
     async def publish(self, job: PublishingJob, project: ContentProject) -> Dict[str, Any]:
@@ -43,6 +29,9 @@ class PublishingDispatcher:
         3. Conta pausada.
         4. Limite diário de publicações.
         """
+        if job.status == ProcessingStatus.PUBLISHED:
+            return {"success": True, "post_id": job.platform_post_id, "url": job.post_url, "already_published": True}
+
         # Checagem de Botão de Pânico
         if settings.EMERGENCY_STOP:
             job.status = ProcessingStatus.CANCELLED
@@ -92,7 +81,11 @@ class PublishingDispatcher:
                     f"#noticias #urgente #jornalismo"
                 ).strip()
 
-                video_file = self._find_or_create_video(project)
+                video_file = await asyncio.to_thread(self._find_or_create_video, project)
+                # Rendering can take minutes; recheck safety before network upload.
+                if settings.EMERGENCY_STOP or self.account.is_paused:
+                    job.status = ProcessingStatus.CANCELLED
+                    return {"success": False, "reason": "PUBLICATION_STOPPED_AFTER_RENDER"}
 
                 yt_client = YouTubePublisher(
                     client_id=settings.YOUTUBE_CLIENT_ID,
@@ -132,17 +125,6 @@ class PublishingDispatcher:
                 job.error_message = str(e)
                 return {"success": False, "error": str(e)}
 
-        # Fallback para outras redes sociais simuladas (Instagram, TikTok)
-        job.status = ProcessingStatus.PUBLISHED
-        job.platform_post_id = f"pub_{self.account.platform}_{job_key}"
-        job.post_url = f"https://{self.account.platform.lower()}.com/post/{job.platform_post_id}"
-        job.published_at = datetime.utcnow()
-        self.account.posts_today += 1
-        
-        return {
-            "success": True,
-            "mode": "PRODUCTION",
-            "post_id": job.platform_post_id,
-            "url": job.post_url
-        }
-
+        job.status = ProcessingStatus.FAILED
+        job.error_message = "Plataforma não implementada ou credenciais de publicação ausentes."
+        return {"success": False, "reason": "PUBLISHER_NOT_CONFIGURED", "error": job.error_message}

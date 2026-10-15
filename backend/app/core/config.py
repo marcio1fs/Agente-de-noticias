@@ -1,6 +1,6 @@
 import os
-from pydantic_settings import BaseSettings
-from typing import List, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List, Optional, Literal
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Agente Autônomo de Notícias"
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # Modo de Operação do Agente: 'SIMULATION', 'ASSISTED', 'AUTONOMOUS'
-    AGENT_MODE: str = "AUTONOMOUS"
+    AGENT_MODE: Literal["SIMULATION", "ASSISTED", "AUTONOMOUS"] = "SIMULATION"
     
     # Botão de Emergência Global (se True, nenhuma publicação é despachada)
     EMERGENCY_STOP: bool = False
@@ -57,9 +57,7 @@ class Settings(BaseSettings):
     PEXELS_API_KEY: Optional[str] = None
     PIXABAY_API_KEY: Optional[str] = None
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 settings = Settings()
 

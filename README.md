@@ -9,7 +9,7 @@ Este documento reúne a arquitetura, instruções de execução, segurança e op
 O sistema opera no ciclo contínuo:
 $$\text{COLETAR} \longrightarrow \text{VERIFICAR} \longrightarrow \text{PRODUZIR} \longrightarrow \text{RENDERIZAR} \longrightarrow \text{PUBLICAR} \longrightarrow \text{AUDITAR}$$
 
-- **Backend**: Python 3.14 / FastAPI assíncrono com SQLAlchemy 2.0 e Pydantic v2.
+- **Backend**: Python 3.12 (Docker) / FastAPI assíncrono com SQLAlchemy 2.0 e Pydantic v2.
 - **Frontend**: Next.js 14 (TypeScript / Tailwind CSS) com Dashboard responsivo em Português.
 - **Banco de Dados**: SQLite local (desenvolvimento) ou PostgreSQL (produção).
 - **Processamento de Vídeo**: Pipeline integrado com suporte a FFmpeg (16:9 horizontal e 9:16 vertical Shorts/Reels).
@@ -63,7 +63,7 @@ O comportamento do sistema é configurado via variável de ambiente `AGENT_MODE`
 ## 4. Botão de Pânico / Parada de Emergência
 
 O painel administrativo possui um controle de parada global (`EMERGENCY_STOP`):
-- Ao acionar o botão vermelho no menu lateral do dashboard ou enviar `POST /api/v1/system/emergency-stop?active=true`, **todas as publicações pendentes e em execução são imediatamente canceladas**, garantindo segurança absoluta diante de imprevistos.
+- Ao acionar o botão vermelho no menu lateral do dashboard ou enviar `POST /api/v1/system/emergency-stop?active=true`, novos despachos são bloqueados e a parada é rechecada após a renderização, antes do upload. Uploads já iniciados não são interrompidos; em múltiplos workers, o estado em memória não é compartilhado.
 
 ---
 
@@ -74,3 +74,54 @@ Para subir toda a infraestrutura com PostgreSQL, Redis, Backend (com FFmpeg embu
 cd "c:\agente de noticias"
 docker-compose up -d --build
 ```
+
+
+## 6. Seleção de vídeos relacionados e auditoria
+
+O agente usa conceitos específicos da **manchete** e valida os metadados dos candidatos
+Pixabay/Pexels antes de baixar. Não escolhe automaticamente o primeiro resultado e não
+usa vídeos genéricos de outro assunto quando a busca falha. Manchetes desconhecidas,
+ambíguas, candidatos sem metadados ou falta de chave resultam em **cartela editorial
+com a notícia**, sem imagens de banco. Os clipes são ilustrativos, não registros
+comprovados do acontecimento. As licenças de cada provedor devem ser respeitadas.
+
+Renders anteriores à nova política não são reutilizados automaticamente na publicação.
+O modo padrão é `SIMULATION`; redes sem integração real retornam falha fora desse modo.
+
+Veja [AUDITORIA.md](AUDITORIA.md) para correções, testes e pendências de segurança.
+**Não exponha a API administrativa publicamente sem autenticação.** A atualização
+compatível do frontend ainda deixa alertas de dependências que exigem migração maior.
+
+Testes em Linux, a partir da raiz:
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+PYTHONPATH=backend .venv/bin/pytest backend/tests -q
+cd frontend
+npm ci
+npx tsc --noEmit
+```
+
+
+## 7. Quadro de prévia no painel
+
+O quadro **Prévia antes de publicar** permite selecionar uma notícia com roteiro,
+gerar/assistir ao vídeo 9:16 ou 16:9 e conferir a manchete e o resumo. Os botões
+**Prévia** da lista abrem o mesmo quadro. Após reproduzir o vídeo, marque
+**Revisei esta notícia e este vídeo** e confirme o envio (simulado em SIMULATION).
+A publicação atual usa a versão 9:16, por isso a confirmação exige revisar esse formato.
+
+A prévia não publica nada: gerar vídeo e publicar são ações separadas. Para garantir
+revisão humana antes do envio automático, selecione **ASSISTED**; o modo AUTONOMOUS
+não aguarda a confirmação visual deste quadro. A confirmação do painel não substitui
+controles de autorização na API.
+
+O frontend usa `/api` na mesma origem e encaminha ao backend via Next.js. Por padrão,
+o destino interno é `http://127.0.0.1:8000`. Em instalações com serviços separados,
+configure `BACKEND_URL` no ambiente do servidor frontend (por exemplo,
+`http://backend:8000`) e reinicie-o. Essa URL não é exposta ao navegador.
+
+O vídeo é servido por endpoint dedicado com suporte a busca por trecho (HTTP Range).
+Prévia e upload reutilizam o mesmo render validado; se manchete ou roteiro mudar,
+é necessário gerar a prévia novamente. É necessário FFmpeg no backend.

@@ -119,10 +119,10 @@ class AutonomousNewsPipeline:
                     })
 
                 await self.db.commit()
-                result["published"] = True
+                result["published"] = any(d["details"].get("success") for d in published_dests)
                 result["published_destinations"] = published_dests
-                result["status"] = ProcessingStatus.PUBLISHED
-                logger.info("[Autonomous Pipeline] Notícia '%s' publicada com sucesso!", item.title[:60])
+                result["status"] = ProcessingStatus.PUBLISHED if result["published"] else ProcessingStatus.FAILED
+                logger.info("[Autonomous Pipeline] Notícia %s: published=%s", item.id, result["published"])
             else:
                 result["reason"] = f"Não atende aos critérios de publicação automática (Score: {ver_res.confidence_score}%, Risco: {item.risk_level})"
 

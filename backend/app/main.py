@@ -5,7 +5,7 @@ import urllib.parse
 import httpx
 
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
@@ -27,6 +27,7 @@ from app.modules.discovery.scheduler import run_discovery, discovery_scheduler_l
 from app.modules.verification.engine import FactVerificationEngine
 from app.modules.content.engine import ContentProductionEngine
 from app.modules.video.pipeline import VideoProductionPipeline
+from app.modules.video.preview import cached_video, render_preview, fingerprint_for, script_for
 from app.modules.publishing.dispatcher import PublishingDispatcher
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -55,9 +56,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    import os
-    env_mode = os.getenv("AGENT_MODE", "AUTONOMOUS")
-    settings.AGENT_MODE = env_mode
+    # Settings already loads and validates AGENT_MODE, including .env.
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -340,24 +339,50 @@ async def render_video_endpoint(project_id: str, is_vertical: bool = False, db: 
     if not project:
         raise HTTPException(status_code=404, detail="Projeto de conteúdo não encontrado.")
 
+    try:
+        path = await asyncio.to_thread(render_preview, project, is_vertical)
+    except (RuntimeError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     pipeline = VideoProductionPipeline()
-    script = project.script_short_vertical if is_vertical else project.script_youtube_long
-    srt_path = pipeline.generate_srt_subtitles(script or project.headline)
-    render_result = pipeline.render_mock_or_ffmpeg(
-        project_id,
-        is_vertical=is_vertical,
-        headline=project.headline,
-        script_text=script or project.editorial_summary
-    )
-
+    srt_path = pipeline.generate_srt_subtitles(script_for(project, is_vertical) or project.headline)
     return {
         "success": True,
-        "video_path": render_result["file_path"],
-        "resolution": render_result["resolution"],
-        "format": render_result["format"],
+        "video_path": path,
+        "video_url": f"/api/v1/content-projects/{project.id}/preview/video?is_vertical={str(is_vertical).lower()}&v={fingerprint_for(project, is_vertical)}",
+        "resolution": "1080x1920" if is_vertical else "1920x1080",
+        "format": "vertical_9_16" if is_vertical else "horizontal_16_9",
         "subtitles_srt": srt_path,
-        "has_ffmpeg": render_result["has_ffmpeg"]
+        "has_ffmpeg": True,
     }
+
+
+@app.get("/api/v1/content-projects/{project_id}/preview")
+async def get_content_preview(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db)):
+    project = (await db.execute(select(ContentProject).where(ContentProject.id == project_id))).scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+    ready = cached_video(project, is_vertical) is not None
+    return {
+        "project_id": project.id,
+        "headline": project.headline,
+        "summary": project.editorial_summary,
+        "requires_human_approval": project.requires_human_approval,
+        "ready": ready,
+        "video_url": (f"/api/v1/content-projects/{project.id}/preview/video?is_vertical={str(is_vertical).lower()}&v={fingerprint_for(project, is_vertical)}" if ready else None),
+    }
+
+
+@app.get("/api/v1/content-projects/{project_id}/preview/video")
+async def get_preview_video(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db)):
+    project = (await db.execute(select(ContentProject).where(ContentProject.id == project_id))).scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+    video = cached_video(project, is_vertical)
+    if not video:
+        raise HTTPException(status_code=404, detail="Prévia não gerada ou desatualizada. Gere o vídeo novamente.")
+    # FileResponse supports byte ranges for seeking; never expose storage or
+    # accept a client-supplied filesystem path.
+    return FileResponse(video, media_type="video/mp4", headers={"Cache-Control": "no-store"})
 
 # --- AÇÃO: DISPARAR PUBLICAÇÃO ---
 @app.post("/api/v1/actions/publish/{project_id}")
@@ -394,7 +419,7 @@ async def publish_content(project_id: str, db: AsyncSession = Depends(get_db)):
         })
 
     return {
-        "success": True,
+        "success": any(r["details"].get("success") for r in published_results),
         "project_id": project.id,
         "published_destinations": published_results
     }

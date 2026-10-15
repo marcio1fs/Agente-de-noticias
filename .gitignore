@@ -79,3 +79,6 @@ tmp/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Cache incremental TypeScript
+*.tsbuildinfo

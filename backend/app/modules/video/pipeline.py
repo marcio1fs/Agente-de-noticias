@@ -318,7 +318,7 @@ $syn.Dispose()
         card_y = tag_y + tag_h + 40
         card_h = len(head_lines) * (head_fs + 16) + 60
         head_path = write_txt("head", "\n".join(head_lines))
-        tag_path = write_txt("tag", "AO VIVO  |  ÚLTIMAS NOTÍCIAS")
+        tag_path = write_txt("tag", "NOTÍCIAS  |  IMAGENS ILUSTRATIVAS")
         tick_path = write_txt("tick", "AGENTE AUTÔNOMO DE NOTÍCIAS   •   INFORMAÇÃO VERIFICADA EM TEMPO REAL   •   " + title_text + "   •   ")
 
         # Legendas sincronizadas proporcionalmente ao tamanho do texto
@@ -380,7 +380,7 @@ $syn.Dispose()
         else:
             cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=24000"]
         cmd += ["-f", "lavfi", "-i", f"color=c=0x38BDF8:s={W}x10:r=25:d={d}",
-                "-/filter_complex", script_path.replace("\\", "/"),
+                "-filter_complex_script", script_path.replace("\\", "/"),
                 "-map", "[v]", "-map", "1:a",
                 "-af", "apad", "-t", d,
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "25",
@@ -419,6 +419,12 @@ $syn.Dispose()
         aspect_name = "vertical_9_16" if is_vertical else "horizontal_16_9"
         filename = f"video_{project_id}_{aspect_name}.mp4"
         final_video_path = os.path.join(self.output_dir, filename)
+
+        if not self.is_ffmpeg_installed():
+            raise RuntimeError("FFmpeg não instalado; vídeo não pode ser gerado.")
+        # Remove any previous render before attempting a new one.
+        if os.path.exists(final_video_path):
+            os.remove(final_video_path)
 
         # 1. Definir texto de narração e manchete
         title_text = (headline or "NOTÍCIA DE ÚLTIMA HORA").strip()
@@ -536,6 +542,9 @@ $syn.Dispose()
                 os.remove(headline_txt_path)
             except Exception:
                 pass
+
+        if not os.path.isfile(final_video_path) or os.path.getsize(final_video_path) <= 20000:
+            raise RuntimeError("Falha na renderização; vídeo ausente ou inválido.")
 
         return {
             "file_path": final_video_path,

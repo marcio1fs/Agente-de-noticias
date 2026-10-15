@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import NewsPreview from "../components/NewsPreview";
 import {
   AlertTriangle,
   Radio,
@@ -26,7 +27,7 @@ import {
   Search
 } from "lucide-react";
 
-const API_BASE = "http://localhost:8000/api/v1";
+const API_BASE = "/api/v1";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -51,6 +52,12 @@ export default function DashboardPage() {
   const [sourcesList, setSourcesList] = useState<any[]>([]);
   const [categoriesList, setCategoriesList] = useState<any[]>([]);
   const [publishingAccounts, setPublishingAccounts] = useState<any[]>([]);
+  const [previewProjectId, setPreviewProjectId] = useState("");
+  const [previewRefresh, setPreviewRefresh] = useState(0);
+  const openPreview = (projectId: string) => {
+    setPreviewProjectId(projectId);
+    document.getElementById("news-preview")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const [selectedNews, setSelectedNews] = useState<any | null>(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("ALL");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("ALL");
@@ -261,6 +268,8 @@ export default function DashboardPage() {
       const data = await res.json();
       if (res.ok) {
         showNotification(`Vídeo ${data.format} e narração gerados com sucesso!`, "success");
+        openPreview(projectId);
+        setPreviewRefresh((n) => n + 1);
         await fetchData();
       } else {
         showNotification(data.detail || "Erro ao renderizar vídeo", "error");
@@ -304,11 +313,11 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`${API_BASE}/actions/publish/${projectId}`, { method: "POST" });
       const data = await res.json();
-      if (res.ok) {
-        showNotification(`Publicado com sucesso em ${data.published_destinations?.length || 0} canais!`, "success");
+      if (res.ok && data.success) {
+        showNotification(`Publicado com sucesso em ${data.published_destinations?.filter((r: any) => r.details?.success).length || 0} canais!`, "success");
         await fetchData();
       } else {
-        showNotification(data.detail || "Erro ao publicar", "error");
+        showNotification(data.detail || data.published_destinations?.find((r: any) => !r.details?.success)?.details?.error || "Nenhuma publicação foi concluída.", "error");
       }
     } catch (err) {
       showNotification("Erro ao publicar", "error");
@@ -588,6 +597,17 @@ export default function DashboardPage() {
 
         {/* Container das Páginas */}
         <div className="p-8 space-y-8">
+          <NewsPreview
+            items={newsList.filter((n) => n.has_content && n.project_id)}
+            selectedId={previewProjectId}
+            onSelect={setPreviewProjectId}
+            refreshKey={previewRefresh}
+            mode={stats.agent_mode}
+            stopped={stats.emergency_stop_active}
+            busy={loadingAction !== null}
+            onRender={handleRenderVideo}
+            onPublish={handlePublish}
+          />
           {/* ABA 1: VISÃO GERAL */}
           {activeTab === "overview" && (
             <>
@@ -746,11 +766,11 @@ export default function DashboardPage() {
                                 {/* Botão Publicar se tiver projeto */}
                                 {item.has_content && item.project_id && (
                                   <button
-                                    onClick={() => handlePublish(item.project_id)}
+                                    onClick={() => openPreview(item.project_id)}
                                     disabled={loadingAction === `publish_${item.project_id}`}
                                     className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold transition"
                                   >
-                                    Publicar
+                                    Prévia
                                   </button>
                                 )}
                               </div>
@@ -1042,12 +1062,12 @@ export default function DashboardPage() {
                               {loadingAction === `render_${item.project_id}` ? "..." : "16:9 YouTube"}
                             </button>
                             <button
-                              onClick={() => handlePublish(item.project_id)}
+                              onClick={() => openPreview(item.project_id)}
                               disabled={loadingAction === `publish_${item.project_id}`}
                               className="py-2 px-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
                             >
                               <Send className="w-3.5 h-3.5" />
-                              Publicar
+                              Prévia
                             </button>
                           </div>
                         </div>
