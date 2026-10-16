@@ -308,10 +308,10 @@ export default function DashboardPage() {
   };
 
   // 7. AÇÃO: Publicar nas Redes Sociais
-  const handlePublish = async (projectId: string) => {
+  const handlePublish = async (projectId: string, isVertical: boolean = true) => {
     setLoadingAction(`publish_${projectId}`);
     try {
-      const res = await fetch(`${API_BASE}/actions/publish/${projectId}`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/actions/publish/${projectId}?is_vertical=${isVertical}`, { method: "POST" });
       const data = await res.json();
       if (res.ok && data.success) {
         showNotification(`Publicado com sucesso em ${data.published_destinations?.filter((r: any) => r.details?.success).length || 0} canais!`, "success");

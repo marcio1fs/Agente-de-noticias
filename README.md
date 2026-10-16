@@ -110,7 +110,10 @@ O quadro **Prévia antes de publicar** permite selecionar uma notícia com rotei
 gerar/assistir ao vídeo 9:16 ou 16:9 e conferir a manchete e o resumo. Os botões
 **Prévia** da lista abrem o mesmo quadro. Após reproduzir o vídeo, marque
 **Revisei esta notícia e este vídeo** e confirme o envio (simulado em SIMULATION).
-A publicação atual usa a versão 9:16, por isso a confirmação exige revisar esse formato.
+A publicação manual usa a versão selecionada e revisada: **9:16 ou 16:9**.
+A caixa de revisão só é liberada quando o vídeo está disponível para reprodução;
+o botão de envio exige essa confirmação, uma fonte válida e a parada de emergência desativada.
+O painel exibe a próxima etapa quando algum controle estiver bloqueado.
 
 A prévia não publica nada: gerar vídeo e publicar são ações separadas. Para garantir
 revisão humana antes do envio automático, selecione **ASSISTED**; o modo AUTONOMOUS
@@ -140,3 +143,20 @@ simulação. Projetos antigos vinculados a uma notícia válida recebem a fonte 
 próximo envio, sem precisar gerar novamente o texto. Posts já publicados não são
 editados retroativamente. A integração real atual continua sendo apenas YouTube;
 legendas preparadas para outras redes não significam publicação nessas redes.
+
+
+### Testes dos controles da prévia
+
+Com Node.js 22.12 ou superior compatível com o Vitest 5:
+
+```bash
+cd frontend
+npm ci
+npm test
+npx tsc --noEmit
+```
+
+Esses testes cobrem ausência de vídeo, revisão/publicação em 16:9, clique no
+formato já ativo, troca de formato, erro de reprodução e parada de emergência.
+O pipeline autônomo mantém 9:16 como padrão; a escolha de formato é aplicada
+à publicação manual pelo painel.

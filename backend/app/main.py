@@ -390,7 +390,7 @@ async def get_preview_video(project_id: str, is_vertical: bool = True, db: Async
 
 # --- AÇÃO: DISPARAR PUBLICAÇÃO ---
 @app.post("/api/v1/actions/publish/{project_id}")
-async def publish_content(project_id: str, db: AsyncSession = Depends(get_db)):
+async def publish_content(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db)):
     stmt = select(ContentProject).where(ContentProject.id == project_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
     if not project:
@@ -412,7 +412,7 @@ async def publish_content(project_id: str, db: AsyncSession = Depends(get_db)):
         db.add(job)
         await db.commit()
 
-        dispatcher = PublishingDispatcher(acc, db=db)
+        dispatcher = PublishingDispatcher(acc, db=db, is_vertical=is_vertical)
         dispatch_res = await dispatcher.publish(job, project)
         await db.commit()
         published_results.append({

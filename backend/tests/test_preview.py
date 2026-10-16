@@ -95,3 +95,38 @@ async def test_render_failure_does_not_offer_preview(preview_api, monkeypatch):
 def test_path_injection_rejected(project_id):
     with pytest.raises(ValueError):
         render_paths(project_id, True)
+
+@pytest.mark.parametrize("vertical", [True, False])
+def test_dispatcher_uses_selected_render_format(monkeypatch, vertical):
+    from app.models.entities import PublishingAccount
+    captured = []
+    def selected_render(project, is_vertical=True):
+        captured.append(is_vertical)
+        return "vertical.mp4" if is_vertical else "horizontal.mp4"
+    monkeypatch.setattr("app.modules.publishing.dispatcher.render_preview", selected_render)
+    dispatcher = PublishingDispatcher(PublishingAccount(), is_vertical=vertical)
+    assert dispatcher._find_or_create_video(ContentProject()) == ("vertical.mp4" if vertical else "horizontal.mp4")
+    assert captured == [vertical]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query,expected", [("?is_vertical=false", False), ("?is_vertical=true", True), ("", True)])
+async def test_manual_publish_passes_selected_format(preview_api, monkeypatch, query, expected):
+    from app.models.entities import PublishingAccount
+    client, project = preview_api
+    override = app.dependency_overrides[get_db]()
+    session = await anext(override)
+    session.add(PublishingAccount(id="account", platform="YOUTUBE", account_name="test", encrypted_credentials="", is_active=True))
+    await session.commit()
+    captured = []
+    async def publish(self, job, project):
+        captured.append(self.is_vertical)
+        return {"success": True}
+    monkeypatch.setattr(PublishingDispatcher, "publish", publish)
+    try:
+        response = await client.post(f"/api/v1/actions/publish/{project.id}{query}")
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        assert captured == [expected]
+    finally:
+        await override.aclose()

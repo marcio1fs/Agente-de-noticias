@@ -10,9 +10,10 @@ from app.modules.video.preview import render_preview
 from app.modules.publishing.attribution import project_source_url, youtube_description
 
 class PublishingDispatcher:
-    def __init__(self, account: PublishingAccount, db=None):
+    def __init__(self, account: PublishingAccount, db=None, is_vertical: bool = True):
         self.account = account
         self.db = db
+        self.is_vertical = is_vertical
 
     def get_decrypted_token(self) -> str:
         """Descriptografa com segurança os tokens da plataforma em memória."""
@@ -20,7 +21,7 @@ class PublishingDispatcher:
 
     def _find_or_create_video(self, project: ContentProject) -> str:
         """Localiza arquivo de vídeo renderizado para o projeto ou gera com o pipeline FFmpeg."""
-        return render_preview(project, is_vertical=True)
+        return render_preview(project, is_vertical=self.is_vertical)
 
 
     async def publish(self, job: PublishingJob, project: ContentProject) -> Dict[str, Any]:
