@@ -30,6 +30,8 @@ from app.modules.video.pipeline import VideoProductionPipeline
 from app.modules.video.preview import cached_video, render_preview, fingerprint_for, script_for
 from app.modules.publishing.dispatcher import PublishingDispatcher
 from app.modules.publishing.attribution import project_source_url, youtube_description
+from app.modules.original_factory.router import router as factory_router, require_factory, key_header
+from app.modules.original_factory.scheduler import factory_scheduler_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -38,6 +40,8 @@ app = FastAPI(
     version=settings.VERSION,
     description="API Operacional do Agente Autônomo de Notícias"
 )
+
+app.include_router(factory_router)
 
 # Habilitar CORS para permitir comunicação com o frontend Next.js
 app.add_middleware(
@@ -134,19 +138,26 @@ async def startup_event():
             ])
             await session.commit()
 
+    if settings.FACTORY_ENABLED and settings.FACTORY_SCHEDULER_ENABLED:
+        if settings.FACTORY_ADMIN_KEY and len(settings.FACTORY_ADMIN_KEY) >= 32:
+            app.state.factory_task = asyncio.create_task(factory_scheduler_loop())
+        else:
+            logging.warning("Fábrica sem chave administrativa segura; agendador não iniciado.")
+
     # Coleta automática em segundo plano
     if settings.DISCOVERY_SCHEDULER_ENABLED:
         app.state.discovery_task = asyncio.create_task(discovery_scheduler_loop())
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    task = getattr(app.state, "discovery_task", None)
-    if task:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+    for name in ("discovery_task", "factory_task"):
+        task = getattr(app.state, name, None)
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 @app.get("/api/health")
 async def health_check():
@@ -340,6 +351,9 @@ async def render_video_endpoint(project_id: str, is_vertical: bool = False, db: 
     if not project:
         raise HTTPException(status_code=404, detail="Projeto de conteúdo não encontrado.")
 
+    if isinstance(project.social_captions, dict) and project.social_captions.get("_factory"):
+        raise HTTPException(409, "Use a renderização protegida da fábrica após aprovação editorial.")
+
     try:
         path = await asyncio.to_thread(render_preview, project, is_vertical)
     except (RuntimeError, ValueError, OSError) as exc:
@@ -358,10 +372,12 @@ async def render_video_endpoint(project_id: str, is_vertical: bool = False, db: 
 
 
 @app.get("/api/v1/content-projects/{project_id}/preview")
-async def get_content_preview(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db)):
+async def get_content_preview(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db), key: str | None = Depends(key_header)):
     project = (await db.execute(select(ContentProject).where(ContentProject.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+    if isinstance(project.social_captions, dict) and project.social_captions.get("_factory"):
+        require_factory(key)
     ready = cached_video(project, is_vertical) is not None
     source_url = await project_source_url(project, db)
     return {
@@ -377,10 +393,12 @@ async def get_content_preview(project_id: str, is_vertical: bool = True, db: Asy
 
 
 @app.get("/api/v1/content-projects/{project_id}/preview/video")
-async def get_preview_video(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db)):
+async def get_preview_video(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db), key: str | None = Depends(key_header)):
     project = (await db.execute(select(ContentProject).where(ContentProject.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+    if isinstance(project.social_captions, dict) and project.social_captions.get("_factory"):
+        require_factory(key)
     video = cached_video(project, is_vertical)
     if not video:
         raise HTTPException(status_code=404, detail="Prévia não gerada ou desatualizada. Gere o vídeo novamente.")

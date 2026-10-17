@@ -30,7 +30,7 @@ def script_for(project: ContentProject, is_vertical: bool):
 
 def fingerprint_for(project: ContentProject, is_vertical: bool):
     return hashlib.sha256(json.dumps(
-        ["relevance_v4_speech_numeric_por", project.headline, script_for(project, is_vertical),
+        [("factory_v1_owned_media" if isinstance(project.social_captions, dict) and project.social_captions.get("_factory") else "relevance_v4_speech_numeric_por"), project.headline, script_for(project, is_vertical),
          "vertical" if is_vertical else "horizontal"], ensure_ascii=False
     ).encode()).hexdigest()
 
@@ -71,9 +71,11 @@ def _render_preview(project: ContentProject, is_vertical: bool):
     video, manifest = render_paths(project.id, is_vertical)
     # Invalidate the old marker before overwriting the media.
     manifest.unlink(missing_ok=True)
+    factory = isinstance(project.social_captions, dict) and project.social_captions.get("_factory") is True
+    options = {"original_content": True} if factory else {}
     result = VideoProductionPipeline().render_mock_or_ffmpeg(
         project.id, is_vertical=is_vertical, headline=project.headline,
-        script_text=script_for(project, is_vertical),
+        script_text=script_for(project, is_vertical), **options,
     )
     if Path(result["file_path"]).resolve() != video or not video.is_file() or video.stat().st_size <= 20000:
         raise RuntimeError("Renderização não gerou vídeo válido; upload bloqueado.")

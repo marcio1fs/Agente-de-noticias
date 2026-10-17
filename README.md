@@ -160,3 +160,18 @@ Esses testes cobrem ausência de vídeo, revisão/publicação em 16:9, clique n
 formato já ativo, troca de formato, erro de reprodução e parada de emergência.
 O pipeline autônomo mantém 9:16 como padrão; a escolha de formato é aplicada
 à publicação manual pelo painel.
+
+## 9. Módulo 2 — Fábrica de Conteúdo Original
+
+Nova aba independente do fluxo de notícias: ideias e fontes, roteiros originais
+em português, classificação de hipóteses, revisão editorial, renderização e
+miniatura próprias, envio no formato escolhido e métricas reais do YouTube.
+
+Desativada por padrão, orçamento zero, chave administrativa própria e aprovação
+humana obrigatória. O envio original é **privado por padrão**, mesmo em modo real.
+Reutiliza TTS, FFmpeg, prévia, jobs, OAuth e upload existentes; não substitui o agente.
+
+Veja **[diagnóstico, configuração e roteiro de teste local](docs/ORIGINAL_CONTENT_FACTORY.md)**.
+A documentação distingue funcionalidades operacionais de extensões pendentes:
+não há API de tendências, gerador de imagens/vídeos, trilha licenciada configurada,
+otimização automática por métricas ou verificação factual independente nesta v1.

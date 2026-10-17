@@ -215,3 +215,46 @@ class CostRecord(Base):
     tokens_used = Column(Integer, default=0)
     cost_usd = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# Módulo 2 — isolated tables; existing news data and statuses are untouched.
+class OriginalTopic(Base):
+    __tablename__ = "original_topics"
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    title = Column(String(300), nullable=False)
+    category = Column(String(50), nullable=False)
+    nature = Column(String(30), default="FACTUAL", nullable=False)
+    dedup_key = Column(String(64), unique=True, nullable=False)
+    origin = Column(String(100), nullable=False, default="manual")
+    source_urls = Column(JSON, default=list)
+    score = Column(Float, default=0.0)
+    score_breakdown = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FactoryProduction(Base):
+    __tablename__ = "factory_productions"
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    topic_id = Column(String(36), ForeignKey("original_topics.id"), unique=True, nullable=False)
+    content_project_id = Column(String(36), ForeignKey("content_projects.id"), unique=True)
+    phase = Column(String(40), default="QUEUED", nullable=False, index=True)
+    is_vertical = Column(Boolean, default=True, nullable=False)
+    research = Column(JSON, default=list)
+    draft = Column(JSON, default=dict)
+    quality_report = Column(JSON, default=dict)
+    metrics = Column(JSON, default=dict)
+    error_message = Column(Text)
+    attempts = Column(Integer, default=0, nullable=False)
+    approved_at = Column(DateTime)
+    approved_by = Column(String(100))
+    next_retry_at = Column(DateTime)
+    started_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FactoryUsage(Base):
+    __tablename__ = "factory_usage"
+    day = Column(String(10), primary_key=True)
+    calls = Column(Integer, default=0, nullable=False)
+    reserved_microusd = Column(Integer, default=0, nullable=False)

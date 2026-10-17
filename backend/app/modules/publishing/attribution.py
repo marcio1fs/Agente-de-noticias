@@ -1,7 +1,8 @@
 """Source attribution is derived from the collected article, never from an LLM."""
 from urllib.parse import urlsplit
 
-from app.models.entities import NewsItem
+from app.models.entities import NewsItem, FactoryProduction
+from sqlalchemy import select
 
 
 def validated_source_url(value: str | None) -> str | None:
@@ -21,7 +22,15 @@ def validated_source_url(value: str | None) -> str | None:
 
 
 async def project_source_url(project, db):
-    if db is None or not project.news_item_id:
+    if db is None:
+        return None
+    if not project.news_item_id:
+        if not isinstance(project.social_captions, dict) or not project.social_captions.get("_factory"):
+            return None
+        production = (await db.execute(select(FactoryProduction).where(
+            FactoryProduction.content_project_id == project.id))).scalar_one_or_none()
+        if production and production.research:
+            return validated_source_url(production.research[0].get("url"))
         return None
     news = await db.get(NewsItem, project.news_item_id)
     return validated_source_url(news.url) if news else None
@@ -49,4 +58,7 @@ def youtube_description(project, source_url: str):
         project.editorial_summary or "", caption if isinstance(caption, str) else "",
         "#noticias #urgente #jornalismo",
     ) if part)
+    if isinstance(project.social_captions, dict) and project.social_captions.get("_factory"):
+        # Preserve all research citations and disclosure; no news hashtags.
+        return with_source(caption, source_url, limit=5000).replace("Fonte da notícia original:", "Fonte principal da pesquisa:", 1)
     return with_source(body, source_url, limit=5000)
