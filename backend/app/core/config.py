@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # Pipeline Autônomo de Ponta a Ponta
     AUTONOMOUS_PIPELINE_ENABLED: bool = True       # Dispara verificação e produção assim que novas notícias chegam
     AUTONOMOUS_AUTO_PUBLISH_LOW_RISK: bool = True  # Publica automaticamente se risco for LOW e confiança >= 80%
+    AUTONOMOUS_PUBLISH_FORMAT: Literal["horizontal", "vertical", "both"] = "horizontal"  # horizontal (16:9 vídeo YouTube) ou vertical (9:16 Shorts)
     BREAKING_NEWS_INTERVAL_SECONDS: int = 120     # Intervalo ágil para checagem de furos de reportagem
     
     # Coleta de notícias (Discovery)
@@ -48,6 +49,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
+    
+    # LLM Local Gratuita via Ollama
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2"  # ou mistral, qwen2.5, gemma2, etc.
+    LLM_PROVIDER: str = "auto"      # 'auto', 'ollama', 'gemini', 'openai'
     
     # YouTube OAuth 2.0 Credentials
     YOUTUBE_CLIENT_ID: Optional[str] = None

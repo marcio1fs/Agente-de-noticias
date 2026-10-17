@@ -10,7 +10,7 @@ from app.modules.video.preview import render_preview
 from app.modules.publishing.attribution import project_source_url, youtube_description
 
 class PublishingDispatcher:
-    def __init__(self, account: PublishingAccount, db=None, is_vertical: bool = True):
+    def __init__(self, account: PublishingAccount, db=None, is_vertical: bool = False):
         self.account = account
         self.db = db
         self.is_vertical = is_vertical

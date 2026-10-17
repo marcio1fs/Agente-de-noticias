@@ -108,23 +108,22 @@ class ContentProductionEngine:
             "social_captions": social_captions
         }
 
-    async def _call_gemini_api(self, item: NewsItem) -> Optional[Dict[str, Any]]:
-        """Gera o conteúdo jornalístico com Google Gemini se houver chave configurada."""
-        if not settings.GEMINI_API_KEY:
-            return None
-
-        prompt = (
+    def _build_prompt(self, item: NewsItem) -> str:
+        return (
             f"Você é um editor-chefe de telejornal e repórter profissional de alta velocidade.\n"
             f"Analise o seguinte fato noticioso e produza materiais jornalísticos de alta qualidade.\n\n"
             f"Título Original: {item.title}\n"
             f"Texto/Resumo do Fato: {item.summary or item.title}\n"
             f"Fonte Original: {item.url}\n\n"
+            f"Diretrizes de Locução e Pontuação:\n"
+            f"- Escreva com pontuação cadenciada e pausada, utilizando vírgulas e pontos finais para marcar a respiração natural de um âncora de telejornal.\n"
+            f"- Evite frases excessivamente longas ou sem pausas. Separe orações e dados por vírgulas para facilitar a dicção da narração.\n\n"
             f"Retorne OBRIGATORIAMENTE um JSON válido com os seguintes campos:\n"
             f"{{\n"
             f'  "headline": "Manchete forte, objetiva, sem sensacionalismo (até 90 caracteres)",\n'
             f'  "editorial_summary": "Resumo jornalístico estruturado no método da Pirâmide Invertida (Lede, detalhes, repercussão)",\n'
-            f'  "short_script": "Roteiro dinâmico para vídeo vertical 9:16 (Shorts/Reels) de até 45 segundos, iniciando com gancho nos primeiros 3 segundos",\n'
-            f'  "long_script": "Roteiro estruturado para vídeo horizontal 16:9 estilo telejornal com blocos marcados de tempo",\n'
+            f'  "short_script": "Roteiro dinâmico para vídeo vertical 9:16 (Shorts/Reels) de até 45 segundos, pontuado com vírgulas e pontos para locução clara, iniciando com gancho nos primeiros 3 segundos",\n'
+            f'  "long_script": "Roteiro estruturado para vídeo horizontal 16:9 estilo telejornal com blocos marcados de tempo e pontuação cadenciada",\n'
             f'  "social_captions": {{\n'
             f'    "youtube": "Descrição completa para YouTube com hashtags",\n'
             f'    "instagram": "Legenda com gancho visual e emojis jornalísticos",\n'
@@ -133,6 +132,42 @@ class ContentProductionEngine:
             f"}}\n"
             f"Responda APENAS com o JSON, sem markdown ou explicações fora do JSON."
         )
+
+    async def _call_ollama_api(self, item: NewsItem) -> Optional[Dict[str, Any]]:
+        """Gera o conteúdo jornalístico via LLM local gratuita usando Ollama."""
+        ollama_url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+        prompt = self._build_prompt(item)
+        payload = {
+            "model": settings.OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {
+                "temperature": 0.3
+            }
+        }
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                res = await client.post(ollama_url, json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    raw_text = data.get("response", "")
+                    clean_text = raw_text.strip().replace("```json", "").replace("```", "").strip()
+                    parsed = json.loads(clean_text)
+                    logger.info("[ContentEngine] Conteúdo gerado com sucesso via Ollama (%s)!", settings.OLLAMA_MODEL)
+                    return parsed
+                else:
+                    logger.warning("[ContentEngine] Ollama retornou status %s: %s", res.status_code, res.text[:150])
+        except Exception as e:
+            logger.info("[ContentEngine] Ollama indisponível ou offline (%s).", str(e))
+        return None
+
+    async def _call_gemini_api(self, item: NewsItem) -> Optional[Dict[str, Any]]:
+        """Gera o conteúdo jornalístico com Google Gemini se houver chave configurada."""
+        if not settings.GEMINI_API_KEY:
+            return None
+
+        prompt = self._build_prompt(item)
 
         try:
             # Modelos ativos na API do Google
@@ -156,10 +191,31 @@ class ContentProductionEngine:
             logger.warning("[ContentEngine] Falha na chamada da API Gemini (%s). Usando motor jornalístico local.", str(e))
         return None
 
+    async def _call_llm(self, item: NewsItem) -> Optional[Dict[str, Any]]:
+        """Orquestra a geração de LLM respeitando prioridade configurada e fallbacks."""
+        provider = (settings.LLM_PROVIDER or "auto").lower()
+
+        if provider == "ollama":
+            return await self._call_ollama_api(item)
+        elif provider == "gemini":
+            return await self._call_gemini_api(item)
+
+        # Modo AUTO: tenta Ollama local primeiro (grátis); se não responder, tenta Gemini
+        content = await self._call_ollama_api(item)
+        if content:
+            return content
+
+        if settings.GEMINI_API_KEY:
+            content = await self._call_gemini_api(item)
+            if content:
+                return content
+
+        return None
+
     async def produce_content(self, item: NewsItem) -> ContentProject:
         """Cria e persiste o projeto de conteúdo jornalístico."""
-        # 1. Tenta enriquecer via Gemini; se indisponível, usa o motor heurístico profissional
-        llm_content = await self._call_gemini_api(item)
+        # 1. Tenta enriquecer via LLM (Ollama gratuito / Gemini); se indisponível, usa o motor heurístico profissional
+        llm_content = await self._call_llm(item)
         if not llm_content:
             llm_content = self._fallback_generation(item)
 

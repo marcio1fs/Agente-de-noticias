@@ -18,7 +18,7 @@ type Props = {
 };
 
 export default function NewsPreview({ items, selectedId, onSelect, refreshKey, mode, stopped, busy, onRender, onPublish }: Props) {
-  const [vertical, setVertical] = useState(true);
+  const [vertical, setVertical] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

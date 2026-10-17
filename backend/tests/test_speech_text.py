@@ -19,6 +19,8 @@ from app.modules.video.pipeline import VideoProductionPipeline
     ("A rede X e o exame de raio-X.", "A rede X e o exame de raio-X."),
     ("Modelo AX6X1 e arquivo6x1.mp4", "Modelo AX6X1 e arquivo6x1.mp4"),
     ("Escala seis por um", "Escala seis por um"),
+    ("Publicado em 15/10/2026 às 03:00.", "Publicado em quinze de outubro de dois mil e vinte e seis às três horas."),
+    ("No dia 01/05/2026 às 15:30", "No dia primeiro de maio de dois mil e vinte e seis às quinze horas e trinta minutos"),
 ])
 def test_numeric_x_pronunciation(text, expected):
     assert normalize_speech_text(text) == expected

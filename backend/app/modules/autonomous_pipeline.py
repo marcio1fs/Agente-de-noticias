@@ -109,7 +109,8 @@ class AutonomousNewsPipeline:
                     self.db.add(job)
                     await self.db.flush()
 
-                    dispatcher = PublishingDispatcher(acc, db=self.db)
+                    is_vert = (settings.AUTONOMOUS_PUBLISH_FORMAT == "vertical")
+                    dispatcher = PublishingDispatcher(acc, db=self.db, is_vertical=is_vert)
                     dispatch_res = await dispatcher.publish(job, project)
                     published_dests.append({
                         "platform": acc.platform,

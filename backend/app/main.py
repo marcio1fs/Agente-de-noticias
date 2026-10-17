@@ -23,6 +23,8 @@ from app.models.entities import (
     Category, Source, NewsItem, VerificationResult, ContentProject,
     PublishingAccount, PublishingJob, AuditLog, ProcessingStatus, RiskLevel
 )
+
+logger = logging.getLogger(__name__)
 from app.modules.discovery.scheduler import run_discovery, discovery_scheduler_loop
 from app.modules.verification.engine import FactVerificationEngine
 from app.modules.content.engine import ContentProductionEngine
@@ -343,7 +345,11 @@ async def render_video_endpoint(project_id: str, is_vertical: bool = False, db: 
     try:
         path = await asyncio.to_thread(render_preview, project, is_vertical)
     except (RuntimeError, ValueError, OSError) as exc:
+        logger.error("[RenderVideo] Falha esperada na renderização de %s: %s", project_id, exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[RenderVideo] Erro inesperado na renderização de %s: %s", project_id, exc)
+        raise HTTPException(status_code=500, detail=f"Erro interno na renderização: {str(exc)}") from exc
     pipeline = VideoProductionPipeline()
     srt_path = pipeline.generate_srt_subtitles(script_for(project, is_vertical) or project.headline)
     return {
@@ -390,7 +396,7 @@ async def get_preview_video(project_id: str, is_vertical: bool = True, db: Async
 
 # --- AÇÃO: DISPARAR PUBLICAÇÃO ---
 @app.post("/api/v1/actions/publish/{project_id}")
-async def publish_content(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db)):
+async def publish_content(project_id: str, is_vertical: bool = False, db: AsyncSession = Depends(get_db)):
     stmt = select(ContentProject).where(ContentProject.id == project_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
     if not project:

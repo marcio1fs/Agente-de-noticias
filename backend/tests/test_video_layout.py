@@ -34,7 +34,7 @@ def test_broadcast_has_no_headline_panel(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline.stock_provider, "get_public_domain_broll", lambda *args, **kwargs: None)
     graphs = []
     def run(command, **kwargs):
-        graph = Path(command[command.index("-filter_complex_script") + 1]).read_text()
+        graph = command[command.index("-filter_complex") + 1]
         graphs.append(graph)
         Path(command[-1]).write_bytes(b"x" * 60000)
         return SimpleNamespace(returncode=0)

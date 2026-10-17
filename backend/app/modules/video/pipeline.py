@@ -76,7 +76,7 @@ class VideoProductionPipeline:
             temp_mp3 = output_wav_path.replace(".wav", "_edge.mp3")
 
             async def _synthesize_edge():
-                communicate = edge_tts.Communicate(clean_text, "pt-BR-AntonioNeural", rate="+2%", pitch="-3Hz")
+                communicate = edge_tts.Communicate(clean_text, "pt-BR-AntonioNeural", rate="+0%", pitch="-3Hz")
                 await communicate.save(temp_mp3)
 
             # Execução segura em qualquer contexto assíncrono ou síncrono
@@ -378,7 +378,7 @@ $syn.Dispose()
         else:
             cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=24000"]
         cmd += ["-f", "lavfi", "-i", f"color=c=0x38BDF8:s={W}x10:r=25:d={d}",
-                "-filter_complex_script", script_path.replace("\\", "/"),
+                "-filter_complex", graph,
                 "-map", "[v]", "-map", "1:a",
                 "-af", "apad", "-t", d,
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "25",

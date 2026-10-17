@@ -69,8 +69,8 @@ async def test_render_preview_upload_reuses_file_and_range(preview_api, monkeypa
     assert len(video.content) == 32
     assert video.headers["content-type"] == "video/mp4"
     assert video.headers["cache-control"] == "no-store"
-    uploaded_path = PublishingDispatcher(PublishingAccount())._find_or_create_video(project)
-    assert uploaded_path == str(cached_video(project))
+    uploaded_path = PublishingDispatcher(PublishingAccount(), is_vertical=True)._find_or_create_video(project)
+    assert uploaded_path == str(cached_video(project, is_vertical=True))
     assert len(renders) == 1
     horizontal = (await client.get(f"/api/v1/content-projects/{project.id}/preview?is_vertical=false")).json()
     assert horizontal["ready"] is False
@@ -110,7 +110,7 @@ def test_dispatcher_uses_selected_render_format(monkeypatch, vertical):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("query,expected", [("?is_vertical=false", False), ("?is_vertical=true", True), ("", True)])
+@pytest.mark.parametrize("query,expected", [("?is_vertical=false", False), ("?is_vertical=true", True), ("", False)])
 async def test_manual_publish_passes_selected_format(preview_api, monkeypatch, query, expected):
     from app.models.entities import PublishingAccount
     client, project = preview_api

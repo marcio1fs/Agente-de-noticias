@@ -295,7 +295,7 @@ export default function DashboardPage() {
     let successCount = 0;
     for (const item of projectsToRender) {
       try {
-        const res = await fetch(`${API_BASE}/actions/render-video/${item.project_id}?is_vertical=true`, { method: "POST" });
+        const res = await fetch(`${API_BASE}/actions/render-video/${item.project_id}?is_vertical=false`, { method: "POST" });
         if (res.ok) successCount++;
       } catch (e) {
         console.error(e);
@@ -308,7 +308,7 @@ export default function DashboardPage() {
   };
 
   // 7. AÇÃO: Publicar nas Redes Sociais
-  const handlePublish = async (projectId: string, isVertical: boolean = true) => {
+  const handlePublish = async (projectId: string, isVertical: boolean = false) => {
     setLoadingAction(`publish_${projectId}`);
     try {
       const res = await fetch(`${API_BASE}/actions/publish/${projectId}?is_vertical=${isVertical}`, { method: "POST" });
@@ -755,11 +755,11 @@ export default function DashboardPage() {
                                 {/* Botão Renderizar se tiver projeto */}
                                 {item.has_content && item.project_id && (
                                   <button
-                                    onClick={() => handleRenderVideo(item.project_id, true)}
+                                    onClick={() => handleRenderVideo(item.project_id, false)}
                                     disabled={loadingAction === `render_${item.project_id}`}
                                     className="px-2.5 py-1 bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 rounded text-xs font-semibold border border-sky-500/30 transition"
                                   >
-                                    Renderizar
+                                    Renderizar (16:9)
                                   </button>
                                 )}
 
