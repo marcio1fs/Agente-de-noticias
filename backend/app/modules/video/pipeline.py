@@ -34,7 +34,7 @@ class VideoProductionPipeline:
         """Verifica se o FFmpeg está acessível no PATH do sistema."""
         return shutil.which("ffmpeg") is not None
 
-    def synthesize_speech(self, text: str, output_wav_path: str) -> bool:
+    def synthesize_speech(self, text: str, output_wav_path: str, allow_custom_audio: bool = True) -> bool:
         """
         Sintetiza a narração em áudio .WAV com alta qualidade de locução jornalística.
         
@@ -53,7 +53,7 @@ class VideoProductionPipeline:
             os.path.join(self.audio_dir, "minha_voz.wav"),
             os.path.join(self.audio_dir, "minha_voz.mp3")
         ]
-        for custom_path in custom_voice_paths:
+        for custom_path in (custom_voice_paths if allow_custom_audio else []):
             if os.path.exists(custom_path) and os.path.getsize(custom_path) > 5000:
                 print(f"[Video Pipeline] Usando voz customizada do usuário: {custom_path}")
                 try:
@@ -285,7 +285,7 @@ $syn.Dispose()
         return caps
 
     def _render_broadcast(self, project_id, title_text, speech_text, wav_path, has_audio,
-                          duration, is_vertical, final_video_path) -> bool:
+                          duration, is_vertical, final_video_path, original_content=False) -> bool:
         """Layout de reportagem: fundo animado, tarja AO VIVO, manchete, legendas sincronizadas,
         letreiro rolante, barra de progresso e fades de entrada/saída."""
         W, H = (1080, 1920) if is_vertical else (1920, 1080)
@@ -318,8 +318,8 @@ $syn.Dispose()
         head_lines = self._wrap(title_text.upper(), head_wrap, 4)
         card_y = tag_y + tag_h + 40
         head_path = write_txt("head", "\n".join(head_lines))
-        tag_path = write_txt("tag", "NOTÍCIAS  |  IMAGENS ILUSTRATIVAS")
-        tick_path = write_txt("tick", "AGENTE AUTÔNOMO DE NOTÍCIAS   •   INFORMAÇÃO VERIFICADA EM TEMPO REAL   •   " + title_text + "   •   ")
+        tag_path = write_txt("tag", "CONTEÚDO ORIGINAL | IMAGENS ILUSTRATIVAS" if original_content else "NOTÍCIAS  |  IMAGENS ILUSTRATIVAS")
+        tick_path = write_txt("tick", ("FÁBRICA DE CONTEÚDO ORIGINAL • NARRAÇÃO ASSISTIDA POR IA • " if original_content else "AGENTE AUTÔNOMO DE NOTÍCIAS   •   INFORMAÇÃO VERIFICADA EM TEMPO REAL   •   ") + title_text + "   •   ")
 
         # Legendas sincronizadas proporcionalmente ao tamanho do texto
         speech_dur = max(2.0, duration - 1.0)
@@ -363,7 +363,7 @@ $syn.Dispose()
             f.write(graph)
         tmp_files.append(script_path)
 
-        broll_video = self.stock_provider.get_public_domain_broll(title_text, is_vertical=is_vertical, script_or_summary=speech_text)
+        broll_video = None if original_content else self.stock_provider.get_public_domain_broll(title_text, is_vertical=is_vertical, script_or_summary=speech_text)
         if broll_video and os.path.exists(broll_video):
             print(f"[Video Pipeline] Usando vídeo de apoio contextualizado: {broll_video}")
             cmd = ["ffmpeg", "-y", "-stream_loop", "-1", "-i", broll_video]
@@ -405,7 +405,8 @@ $syn.Dispose()
         project_id: str,
         is_vertical: bool = False,
         headline: Optional[str] = None,
-        script_text: Optional[str] = None
+        script_text: Optional[str] = None,
+        original_content: bool = False
     ) -> Dict[str, Any]:
         """
         Gera um vídeo rico e completo com narração falada, cartela visual e legenda animada.
@@ -431,7 +432,10 @@ $syn.Dispose()
         # 2. Sintetizar áudio com a voz
         wav_filename = f"audio_{project_id}_{int(datetime.utcnow().timestamp())}.wav"
         wav_path = os.path.join(self.audio_dir, wav_filename)
-        has_audio = self.synthesize_speech(speech_text, wav_path)
+        has_audio = (self.synthesize_speech(speech_text, wav_path, allow_custom_audio=False)
+                     if original_content else self.synthesize_speech(speech_text, wav_path))
+        if original_content and not has_audio:
+            raise RuntimeError("Narração indisponível; a fábrica não publica vídeos silenciosos.")
 
         duration = self.get_audio_duration(wav_path) if has_audio else 10.0
         # Margem de segurança de 1 segundo ao final da fala
@@ -440,7 +444,7 @@ $syn.Dispose()
         # Render profissional estilo reportagem (fallback abaixo se falhar)
         if self.is_ffmpeg_installed() and self._render_broadcast(
             project_id, title_text, speech_text, wav_path, has_audio,
-            duration, is_vertical, final_video_path
+            duration, is_vertical, final_video_path, original_content
         ):
             return {
                 "file_path": final_video_path,
@@ -477,19 +481,21 @@ $syn.Dispose()
             # Filtro de vídeo com gradiente elegante, tarja vermelha e texto centralizado
             font_size = 56 if is_vertical else 48
             banner_size = 28 if is_vertical else 24
+            header_label = "CONTEÚDO ORIGINAL - IMAGENS ILUSTRATIVAS" if original_content else "URGENTE  //  NOTÍCIA VERIFICADA"
+            footer_label = "FÁBRICA DE CONTEÚDO ORIGINAL - NARRAÇÃO ASSISTIDA POR IA" if original_content else "AGENTE AUTÔNOMO DE NOTÍCIAS  •  JORNALISMO EM TEMPO REAL"
 
             font_opt = f"fontfile='{font_path}':" if os.path.exists("C:/Windows/Fonts/arial.ttf") else ""
 
             vf_filters = [
                 # Tarja superior vermelha de 'URGENTE // NOTÍCIA VERIFICADA'
                 f"drawbox=y=80:color=0xDC2626:width=iw:height=70:t=fill",
-                f"drawtext={font_opt}text='URGENTE  //  NOTÍCIA VERIFICADA':fontcolor=white:fontsize={banner_size}:x=(w-text_w)/2:y=100",
+                f"drawtext={font_opt}text='{header_label}':fontcolor=white:fontsize={banner_size}:x=(w-text_w)/2:y=100",
                 # Manchete sem caixa de fundo ou borda azul.
                 # Manchete principal
                 f"drawtext={font_opt}textfile='{safe_title_path}':fontcolor=0xFFFFFF:fontsize={font_size}:x=(w-text_w)/2:y=(h-text_h)/2-30:line_spacing=18",
                 # Rodapé de crédito editorial
                 f"drawbox=y=ih-120:color=0x0F172A:width=iw:height=120:t=fill",
-                f"drawtext={font_opt}text='AGENTE AUTÔNOMO DE NOTÍCIAS  •  JORNALISMO EM TEMPO REAL':fontcolor=0x94A3B8:fontsize=22:x=(w-text_w)/2:y=h-70"
+                f"drawtext={font_opt}text='{footer_label}':fontcolor=0x94A3B8:fontsize=22:x=(w-text_w)/2:y=h-70"
             ]
 
             filter_complex = ",".join(vf_filters)

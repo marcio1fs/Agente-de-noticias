@@ -10,10 +10,11 @@ from app.modules.video.preview import render_preview
 from app.modules.publishing.attribution import project_source_url, youtube_description
 
 class PublishingDispatcher:
-    def __init__(self, account: PublishingAccount, db=None, is_vertical: bool = False):
+    def __init__(self, account: PublishingAccount, db=None, is_vertical: bool = True, factory_authorized: bool = False):
         self.account = account
         self.db = db
         self.is_vertical = is_vertical
+        self.factory_authorized = factory_authorized
 
     def get_decrypted_token(self) -> str:
         """Descriptografa com segurança os tokens da plataforma em memória."""
@@ -32,6 +33,11 @@ class PublishingDispatcher:
         3. Conta pausada.
         4. Limite diário de publicações.
         """
+        factory = isinstance(project.social_captions, dict) and project.social_captions.get("_factory") is True
+        if factory and not self.factory_authorized:
+            job.status = ProcessingStatus.BLOCKED
+            return {"success": False, "reason": "FACTORY_REVIEW_REQUIRED", "error": "Use o fluxo protegido de aprovação/publicação da fábrica."}
+
         if job.status == ProcessingStatus.PUBLISHED:
             return {"success": True, "post_id": job.platform_post_id, "url": job.post_url, "already_published": True}
 
@@ -101,11 +107,12 @@ class PublishingDispatcher:
                     credentials_json=token
                 )
 
+                upload_options = {"category_id": "27", "tags": ["ciencia", "curiosidades", "conteudooriginal"]} if factory else {}
                 upload_res = await yt_client.upload_video(
                     video_path=video_file,
                     title=title,
                     description=desc,
-                    privacy_status="public"
+                    privacy_status=settings.FACTORY_YOUTUBE_PRIVACY if factory else "public", **upload_options
                 )
 
                 if upload_res.get("success"):

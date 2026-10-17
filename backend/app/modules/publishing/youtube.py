@@ -55,7 +55,8 @@ class YouTubePublisher:
         title: str,
         description: str,
         tags: Optional[list] = None,
-        privacy_status: str = "public"
+        privacy_status: str = "public",
+        category_id: str = "25"
     ) -> Dict[str, Any]:
         """
         Faz upload de arquivo de vídeo para o canal do YouTube usando protocolo resumable.
@@ -83,7 +84,7 @@ class YouTubePublisher:
                 "title": title[:100],  # Limite de 100 caracteres do YouTube
                 "description": description[:5000],
                 "tags": tags,
-                "categoryId": "25"  # Categoria 25: Notícias e Política (News & Politics)
+                "categoryId": category_id  # Categoria 25: Notícias e Política (News & Politics)
             },
             "status": {
                 "privacyStatus": privacy_status,  # public, unlisted ou private
@@ -139,6 +140,8 @@ class YouTubePublisher:
                 if upload_resp.status_code in (200, 201):
                     uploaded_data = upload_resp.json()
                     video_id = uploaded_data.get("id")
+                    if not video_id:
+                        return {"success": False, "error": "YouTube respondeu sem ID de vídeo; reconcilie a tentativa no canal."}
                     watch_url = f"https://www.youtube.com/watch?v={video_id}"
                     logger.info(f"[YouTubePublisher] Vídeo publicado com sucesso! ID={video_id} - {watch_url}")
                     return {
@@ -160,3 +163,34 @@ class YouTubePublisher:
                 "success": False,
                 "error": str(ex)
             }
+
+
+    async def video_statistics(self, video_id: str) -> Dict[str, Any]:
+        """Actual YouTube counters; absent fields remain absent (no invented data)."""
+        import re
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", video_id):
+            raise ValueError("ID de vídeo inválido")
+        token = await self.get_valid_access_token()
+        if not token:
+            raise ValueError("Credencial YouTube indisponível")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get("https://www.googleapis.com/youtube/v3/videos",
+                params={"part": "statistics", "id": video_id}, headers={"Authorization": f"Bearer {token}"})
+            response.raise_for_status()
+            items = response.json().get("items", [])
+            if not items:
+                raise ValueError("Métricas ainda indisponíveis para o vídeo")
+            return {key: int(value) for key, value in items[0].get("statistics", {}).items()
+                    if key in ("viewCount", "likeCount", "commentCount")}
+
+    async def set_thumbnail(self, video_id: str, thumbnail_path: str) -> bool:
+        """Optional, requires a channel eligible for custom thumbnails."""
+        token = await self.get_valid_access_token()
+        if not token:
+            return False
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            with open(thumbnail_path, "rb") as image:
+                response = await client.post("https://www.googleapis.com/upload/youtube/v3/thumbnails/set",
+                    params={"videoId": video_id, "uploadType": "media"}, content=image.read(),
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "image/jpeg"})
+            return response.status_code == 200

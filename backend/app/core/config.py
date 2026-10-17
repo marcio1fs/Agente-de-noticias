@@ -1,5 +1,6 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from typing import List, Optional, Literal
 
 class Settings(BaseSettings):
@@ -62,6 +63,22 @@ class Settings(BaseSettings):
     # Bancos de Vídeos Livres de Direitos Autorais (B-Roll CC0 / Gratuitos)
     PEXELS_API_KEY: Optional[str] = None
     PIXABAY_API_KEY: Optional[str] = None
+
+    # OriginalContentFactory: opt-in, independent of the news scheduler.
+    FACTORY_ENABLED: bool = False
+    FACTORY_ADMIN_KEY: Optional[str] = None
+    FACTORY_SCHEDULER_ENABLED: bool = False
+    FACTORY_YOUTUBE_ACCOUNT_ID: Optional[str] = None
+    FACTORY_YOUTUBE_PRIVACY: Literal["private", "unlisted", "public"] = "private"
+    FACTORY_AUTO_PUBLISH: bool = False  # Only after recorded human approval.
+    FACTORY_INTERVAL_SECONDS: int = Field(default=60, ge=10, le=86400)
+    FACTORY_DAILY_CALL_LIMIT: int = Field(default=0, ge=0, le=1000)
+    FACTORY_DAILY_BUDGET_MICROUSD: int = Field(default=0, ge=0)
+    FACTORY_CALL_RESERVATION_MICROUSD: int = Field(default=100000, ge=1)
+    FACTORY_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=5)
+    FACTORY_GEMINI_MODEL: str = "gemini-2.5-flash"
+    FACTORY_SOURCE_HOSTS: List[str] = ["www.nasa.gov", "science.nasa.gov", "www.esa.int", "arxiv.org"]
+    FACTORY_SCORE_WEIGHTS: dict[str, float] = {"curiosity": 0.3, "evidence": 0.4, "novelty": 0.2, "evergreen": 0.1}
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
