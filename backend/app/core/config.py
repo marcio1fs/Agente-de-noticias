@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     # YouTube OAuth 2.0 Credentials
     YOUTUBE_CLIENT_ID: Optional[str] = None
     YOUTUBE_CLIENT_SECRET: Optional[str] = None
+    ADMIN_API_TOKEN: Optional[str] = None
 
     # Bancos de Vídeos Livres de Direitos Autorais (B-Roll CC0 / Gratuitos)
     PEXELS_API_KEY: Optional[str] = None
@@ -79,6 +80,7 @@ class Settings(BaseSettings):
     FACTORY_GEMINI_MODEL: str = "gemini-2.5-flash"
     FACTORY_SOURCE_HOSTS: List[str] = ["www.nasa.gov", "science.nasa.gov", "www.esa.int", "arxiv.org"]
     FACTORY_SCORE_WEIGHTS: dict[str, float] = {"curiosity": 0.3, "evidence": 0.4, "novelty": 0.2, "evergreen": 0.1}
+    FACTORY_NOTIFICATION_WEBHOOK: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 

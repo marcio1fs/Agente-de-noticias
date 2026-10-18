@@ -157,9 +157,9 @@ async def trigger_autonomous_pipeline(limit: int = 50) -> Dict[str, Any]:
                 results.append(res)
             except Exception as e:
                 logger.exception("[Autonomous Pipeline] Erro processando notícia ID %s", item.id)
+                await db.rollback()
                 results.append({"news_id": item.id, "error": str(e)})
 
-        await db.commit()
         return {
             "processed": len(results),
             "details": results

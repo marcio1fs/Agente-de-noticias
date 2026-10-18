@@ -1,11 +1,15 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Float, DateTime, ForeignKey, Enum as SQLEnum, JSON, Index
 )
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 import enum
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
 
 class RiskLevel(str, enum.Enum):
     LOW = "LOW"
@@ -44,7 +48,7 @@ class User(Base):
     full_name = Column(String(255))
     role = Column(String(50), default="editor") # admin, editor, viewer
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 2. Categorias Editoriais
 class Category(Base):
@@ -57,7 +61,7 @@ class Category(Base):
     priority = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     auto_publish_low_risk = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 3. Fontes de Notícias
 class Source(Base):
@@ -82,7 +86,7 @@ class Source(Base):
     last_success_at = Column(DateTime, nullable=True)
     last_items_found = Column(Integer, default=0)
     next_check_at = Column(DateTime, nullable=True, index=True)  # agendamento com backoff
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 4. Itens Coletados
 class NewsItem(Base):
@@ -96,7 +100,7 @@ class NewsItem(Base):
     summary = Column(Text)
     full_text = Column(Text)
     published_date = Column(DateTime)
-    collected_at = Column(DateTime, default=datetime.utcnow)
+    collected_at = Column(DateTime, default=utc_now)
     status = Column(SQLEnum(ProcessingStatus), default=ProcessingStatus.PENDING)
     risk_level = Column(SQLEnum(RiskLevel), default=RiskLevel.MEDIUM)
     cluster_id = Column(String(36), index=True, nullable=True) # para agrupamento de matérias iguais
@@ -109,7 +113,7 @@ class NewsClaim(Base):
     claim_text = Column(Text, nullable=False)
     claim_type = Column(String(50)) # FACT, ACCUSATION, OPINION, ESTIMATE
     is_verified = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 6. Resultados de Verificação Editorial
 class VerificationResult(Base):
@@ -122,7 +126,7 @@ class VerificationResult(Base):
     justification = Column(Text)
     has_prompt_injection = Column(Boolean, default=False)
     flagged_sensitive_topics = Column(JSON, default=list) # [crime, religion, politics]
-    verified_at = Column(DateTime, default=datetime.utcnow)
+    verified_at = Column(DateTime, default=utc_now)
 
 # 7. Projetos de Conteúdo e Roteiros
 class ContentProject(Base):
@@ -139,7 +143,7 @@ class ContentProject(Base):
     status = Column(SQLEnum(ProcessingStatus), default=ProcessingStatus.PRODUCING)
     requires_human_approval = Column(Boolean, default=True)
     approved_by = Column(String(36), ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 8. Mídias e Licenças de Direitos Autorais
 class MediaAsset(Base):
@@ -151,7 +155,7 @@ class MediaAsset(Base):
     source_attribution = Column(String(500))
     is_ai_generated = Column(Boolean, default=False)
     ai_disclosure_text = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 9. Contas de Publicação (YouTube, Insta, TikTok, X, etc.)
 class PublishingAccount(Base):
@@ -165,7 +169,7 @@ class PublishingAccount(Base):
     is_paused = Column(Boolean, default=False)
     daily_post_limit = Column(Integer, default=10)
     posts_today = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 10. Fila e Tarefas de Publicação (Jobs)
 class PublishingJob(Base):
@@ -181,7 +185,7 @@ class PublishingJob(Base):
     published_at = Column(DateTime, nullable=True)
     error_message = Column(Text)
     retry_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 # 11. Métricas de Desempenho
 class PostMetric(Base):
@@ -192,7 +196,7 @@ class PostMetric(Base):
     likes = Column(Integer, default=0)
     shares = Column(Integer, default=0)
     comments = Column(Integer, default=0)
-    collected_at = Column(DateTime, default=datetime.utcnow)
+    collected_at = Column(DateTime, default=utc_now)
 
 # 12. Auditoria e Rastreabilidade Completa
 class AuditLog(Base):
@@ -204,18 +208,14 @@ class AuditLog(Base):
     user_id = Column(String(36), nullable=True)
     details = Column(JSON, default=dict)
     ip_address = Column(String(45))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
-# 13. Custos de IA e Renderização
-class CostRecord(Base):
-    __tablename__ = "cost_records"
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    service_name = Column(String(100)) # OPENAI, GEMINI, ELEVENLABS, SERVER
-    operation = Column(String(100)) # SUMMARY, VERIFY, SCRIPT, TTS, RENDER
-    tokens_used = Column(Integer, default=0)
-    cost_usd = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
+# 14. Configurações Globais do Sistema (Persistentes)
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+    key = Column(String(100), primary_key=True)
+    value = Column(String(1000))
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 # Módulo 2 — isolated tables; existing news data and statuses are untouched.
 class OriginalTopic(Base):
@@ -229,7 +229,7 @@ class OriginalTopic(Base):
     source_urls = Column(JSON, default=list)
     score = Column(Float, default=0.0)
     score_breakdown = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 
 class FactoryProduction(Base):
@@ -249,8 +249,8 @@ class FactoryProduction(Base):
     approved_by = Column(String(100))
     next_retry_at = Column(DateTime)
     started_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class FactoryUsage(Base):

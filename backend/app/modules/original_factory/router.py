@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,7 +15,7 @@ from app.models.entities import (OriginalTopic, FactoryProduction, FactoryUsage,
     PublishingAccount, PublishingJob, ProcessingStatus)
 from app.modules.original_factory.schemas import TopicInput, Approval, Category
 from app.modules.original_factory.engine import OriginalContentFactory
-from app.modules.original_factory.services import FactoryError
+from app.modules.original_factory.services import FactoryError, get_allowed_hosts, register_source_host
 from app.modules.original_factory.media import thumbnail_path
 from app.modules.publishing.youtube import YouTubePublisher
 
@@ -37,7 +37,7 @@ def require_factory(key: str | None = Depends(key_header)):
 async def status():
     import shutil
     return {"enabled": settings.FACTORY_ENABLED, "scheduler_enabled": settings.FACTORY_SCHEDULER_ENABLED,
-        "categories": [c.value for c in Category], "research_hosts": settings.FACTORY_SOURCE_HOSTS,
+        "categories": [c.value for c in Category], "research_hosts": sorted(list(get_allowed_hosts())),
         "capabilities": {"gemini_configured": bool(settings.GEMINI_API_KEY),
             "ffmpeg": bool(shutil.which("ffmpeg")), "ffprobe": bool(shutil.which("ffprobe")),
             "human_review_required": True, "visuals": "owned_animated_graphics",
@@ -46,7 +46,21 @@ async def status():
         "privacy_status": settings.FACTORY_YOUTUBE_PRIVACY,
         "daily_call_limit": settings.FACTORY_DAILY_CALL_LIMIT,
         "daily_budget_microusd": settings.FACTORY_DAILY_BUDGET_MICROUSD,
-        "score_weights": settings.FACTORY_SCORE_WEIGHTS}
+        "score_weights": settings.FACTORY_SCORE_WEIGHTS,
+        "notification_webhook_configured": bool(settings.FACTORY_NOTIFICATION_WEBHOOK)}
+
+
+class HostInput(BaseModel):
+    host: str = Field(min_length=3, max_length=253)
+
+
+@router.post("/hosts", dependencies=[Depends(require_factory)], status_code=201)
+async def add_source_host(data: HostInput):
+    try:
+        registered = register_source_host(data.host)
+        return {"registered": registered, "allowed_hosts": sorted(list(get_allowed_hosts()))}
+    except FactoryError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 async def production_or_404(db, production_id):
@@ -73,7 +87,7 @@ def serialized(production, topic):
 async def productions(db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(FactoryProduction, OriginalTopic).join(OriginalTopic)
         .order_by(FactoryProduction.created_at.desc()).limit(100))).all()
-    usage = await db.get(FactoryUsage, datetime.utcnow().strftime("%Y-%m-%d"))
+    usage = await db.get(FactoryUsage, datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     accounts = (await db.execute(select(PublishingAccount).where(PublishingAccount.platform == "YOUTUBE", PublishingAccount.is_active == True))).scalars().all()
     return {"items": [serialized(p, t) for p, t in rows],
         "usage": {"calls": usage.calls if usage else 0, "reserved_microusd": usage.reserved_microusd if usage else 0},
@@ -147,7 +161,7 @@ async def retry(production_id: str, db: AsyncSession = Depends(get_db)):
         return {"phase": production.phase}
     # Safe recovery of interrupted local work only. Never retry ambiguous upload.
     if production.phase in ("GENERATING", "RENDERING"):
-        if not production.started_at or production.started_at > datetime.utcnow() - timedelta(minutes=30):
+        if not production.started_at or production.started_at > datetime.now(timezone.utc) - timedelta(minutes=30):
             raise HTTPException(409, "Execução ainda pode estar ativa. Aguarde 30 minutos antes de recuperar.")
     elif production.phase not in ("FAILED", "RENDER_FAILED"):
         raise HTTPException(409, "Esta fase não pode ser repetida automaticamente.")
@@ -179,7 +193,7 @@ async def metrics(production_id: str, db: AsyncSession = Depends(get_db)):
         values = await client.video_statistics(job.platform_post_id)
     except Exception as exc:
         raise HTTPException(502, "YouTube não retornou métricas. Verifique credenciais e disponibilidade.") from exc
-    production.metrics = {"youtube": values, "collected_at": datetime.utcnow().isoformat(), "video_id": job.platform_post_id}
+    production.metrics = {"youtube": values, "collected_at": datetime.now(timezone.utc).isoformat(), "video_id": job.platform_post_id}
     OriginalContentFactory(db).audit(production.id, "metrics_collected")
     await db.commit()
     return production.metrics

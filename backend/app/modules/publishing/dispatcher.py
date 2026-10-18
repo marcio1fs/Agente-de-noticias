@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 from app.core.config import settings
 from app.core.security import decrypt_secret
@@ -29,7 +29,7 @@ class PublishingDispatcher:
         """
         Executa publicação respeitando:
         1. Modo de simulação vs modo autônomo.
-        2. Botão de emergência global.
+        2. Botão de emergência global (via DB).
         3. Conta pausada.
         4. Limite diário de publicações.
         """
@@ -41,8 +41,10 @@ class PublishingDispatcher:
         if job.status == ProcessingStatus.PUBLISHED:
             return {"success": True, "post_id": job.platform_post_id, "url": job.post_url, "already_published": True}
 
-        # Checagem de Botão de Pânico
-        if settings.EMERGENCY_STOP:
+        # Checagem de Botão de Pânico (Persistente via DB)
+        from app.main import get_sys_config
+        emergency_stop = await get_sys_config("EMERGENCY_STOP", settings.EMERGENCY_STOP, self.db)
+        if emergency_stop == "True" or emergency_stop is True:
             job.status = ProcessingStatus.CANCELLED
             job.error_message = "Publicação cancelada pelo Botão de Emergência Global."
             return {"success": False, "reason": "EMERGENCY_STOP_ACTIVE"}
@@ -74,7 +76,7 @@ class PublishingDispatcher:
             job.status = ProcessingStatus.PUBLISHED
             job.platform_post_id = f"sim_{job_key}"
             job.post_url = f"https://simulation.local/{self.account.platform.lower()}/{job.platform_post_id}"
-            job.published_at = datetime.utcnow()
+            job.published_at = datetime.now(timezone.utc)
             self.account.posts_today += 1
             return {
                 "success": True,
@@ -97,7 +99,9 @@ class PublishingDispatcher:
 
                 video_file = await asyncio.to_thread(self._find_or_create_video, project)
                 # Rendering can take minutes; recheck safety before network upload.
-                if settings.EMERGENCY_STOP or self.account.is_paused:
+                from app.main import get_sys_config
+                emergency_stop = await get_sys_config("EMERGENCY_STOP", settings.EMERGENCY_STOP, self.db)
+                if (emergency_stop == "True" or emergency_stop is True) or self.account.is_paused:
                     job.status = ProcessingStatus.CANCELLED
                     return {"success": False, "reason": "PUBLICATION_STOPPED_AFTER_RENDER"}
 
@@ -119,7 +123,7 @@ class PublishingDispatcher:
                     job.status = ProcessingStatus.PUBLISHED
                     job.platform_post_id = upload_res["video_id"]
                     job.post_url = upload_res["url"]
-                    job.published_at = datetime.utcnow()
+                    job.published_at = datetime.now(timezone.utc)
                     self.account.posts_today += 1
                     return {
                         "success": True,

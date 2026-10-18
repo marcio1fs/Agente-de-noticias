@@ -1,6 +1,6 @@
 """Persistent, opt-in orchestration reusing ContentProject, render and dispatcher."""
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from difflib import SequenceMatcher
 
@@ -28,6 +28,23 @@ class OriginalContentFactory:
     def audit(self, production_id, action, details=None):
         self.db.add(AuditLog(action=f"factory.{action}", entity_type="FactoryProduction",
                              entity_id=production_id, details=details or {}))
+
+    async def notify(self, event_type: str, production_id: str, payload: dict = None):
+        webhook_url = settings.FACTORY_NOTIFICATION_WEBHOOK
+        if not webhook_url:
+            return
+        body = {
+            "source": "OriginalContentFactory",
+            "event": event_type,
+            "production_id": production_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "details": payload or {}
+        }
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(webhook_url, json=body)
+        except Exception as exc:
+            logger.warning("Falha ao enviar webhook da fábrica: %s", type(exc).__name__)
 
     async def create_topic(self, data: TopicInput, origin="manual"):
         if data.category.value == "hipoteses" and data.nature == "FACTUAL":
@@ -80,7 +97,7 @@ class OriginalContentFactory:
         return created
 
     async def reserve_call(self):
-        day = datetime.utcnow().strftime("%Y-%m-%d")
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if not await self.db.get(FactoryUsage, day):
             try:
                 async with self.db.begin_nested():
@@ -100,7 +117,7 @@ class OriginalContentFactory:
     async def claim(self, production_id, phases, target):
         result = await self.db.execute(update(FactoryProduction).where(
             FactoryProduction.id == production_id, FactoryProduction.phase.in_(phases),
-        ).values(phase=target, started_at=datetime.utcnow(), error_message=None))
+        ).values(phase=target, started_at=datetime.now(timezone.utc), error_message=None))
         await self.db.commit()
         if result.rowcount != 1:
             raise FactoryError("Produção ocupada ou etapa incompatível com esta ação.")
@@ -155,6 +172,7 @@ class OriginalContentFactory:
                 production.phase = "QUALITY_BLOCKED"
             self.audit(production.id, "generated", {"passed": report["passed"], "issues": report["issues"]})
             await self.db.commit()
+            await self.notify(production.phase, production.id, {"title": topic.title, "passed": report["passed"], "issues": report["issues"]})
         except Exception as exc:
             # No provider response text/keys are exposed to the UI or audit log.
             await self.db.rollback()
@@ -164,7 +182,7 @@ class OriginalContentFactory:
                 isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 500, 502, 503, 504))
             production.phase = "QUEUED" if transient and production.attempts < settings.FACTORY_MAX_ATTEMPTS else "FAILED"
             production.error_message = str(exc) if isinstance(exc, FactoryError) else f"Falha {type(exc).__name__}; consulte configuração/provedor e revise antes de repetir."
-            production.next_retry_at = datetime.utcnow() + timedelta(seconds=60 * 2 ** production.attempts) if transient else None
+            production.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=60 * 2 ** production.attempts) if transient else None
             self.audit(production.id, "generation_failed", {"type": type(exc).__name__, "retry": production.phase == "QUEUED"})
             await self.db.commit()
         return production
@@ -176,7 +194,7 @@ class OriginalContentFactory:
         if not production or production.phase != "REVIEW_REQUIRED" or not production.quality_report.get("passed"):
             raise FactoryError("Produção não está pronta para aprovação.")
         project = await self.db.get(ContentProject, production.content_project_id)
-        production.approved_at = datetime.utcnow()
+        production.approved_at = datetime.now(timezone.utc)
         production.approved_by = approval.reviewer
         production.phase = "APPROVED"
         production.quality_report = {**production.quality_report, "approved_fingerprint": fingerprint_for(project, production.is_vertical)}
@@ -199,7 +217,8 @@ class OriginalContentFactory:
             production.quality_report = {**production.quality_report, "technical": technical}
             if not technical["passed"]:
                 raise FactoryError("Vídeo reprovado na checagem técnica: " + "; ".join(technical["issues"]))
-            await asyncio.to_thread(create_thumbnail, project.id, production.draft.get("thumbnail_text", project.headline))
+            topic = await self.db.get(OriginalTopic, production.topic_id)
+            await asyncio.to_thread(create_thumbnail, project.id, production.draft.get("thumbnail_text", project.headline), topic.category if topic else None)
             production.phase = "READY"
             project.status = ProcessingStatus.READY_TO_PUBLISH
             self.audit(production.id, "rendered", {"technical": technical})
@@ -263,7 +282,7 @@ class OriginalContentFactory:
             return {"processed": False, "reason": "EMERGENCY_STOP"}
         candidate = (await self.db.execute(select(FactoryProduction).join(OriginalTopic).where(
             FactoryProduction.phase.in_(["QUEUED", "APPROVED"] + (["READY"] if settings.FACTORY_AUTO_PUBLISH and settings.AGENT_MODE == "AUTONOMOUS" and settings.FACTORY_YOUTUBE_ACCOUNT_ID else [])),
-            or_(FactoryProduction.next_retry_at.is_(None), FactoryProduction.next_retry_at <= datetime.utcnow()),
+            or_(FactoryProduction.next_retry_at.is_(None), FactoryProduction.next_retry_at <= datetime.now(timezone.utc)),
         ).order_by(case((FactoryProduction.phase == "READY", 0), (FactoryProduction.phase == "APPROVED", 1), else_=2), OriginalTopic.score.desc(), FactoryProduction.created_at).limit(1))).scalar_one_or_none()
         if not candidate:
             return {"processed": False}

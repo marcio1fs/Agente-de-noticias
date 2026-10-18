@@ -16,12 +16,13 @@ import uuid
 
 from app.core.config import settings
 from app.core.security import encrypt_secret
+from app.core.auth import require_admin
 from app.db.session import get_db, engine, Base, AsyncSessionLocal
 
 from app.db.schema_upgrade import upgrade_schema
 from app.models.entities import (
     Category, Source, NewsItem, VerificationResult, ContentProject,
-    PublishingAccount, PublishingJob, AuditLog, ProcessingStatus, RiskLevel
+    PublishingAccount, PublishingJob, AuditLog, ProcessingStatus, RiskLevel, SystemConfig
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ async def startup_event():
     # Usa AsyncSessionLocal (expire_on_commit=False): acessar `.id` após commit numa
     # sessão que expira objetos causava erro e deixava o banco sem nenhuma fonte.
     async with AsyncSessionLocal() as session:
+        await reset_daily_limits(session)
         cat_count = (await session.execute(select(func.count(Category.id)))).scalar() or 0
         if cat_count == 0:
             session.add_all([
@@ -162,17 +164,41 @@ async def shutdown_event():
                 pass
 
 @app.get("/api/health")
-async def health_check():
+async def health_check(db: AsyncSession = Depends(get_db)):
+    emergency_stop = await get_sys_config("EMERGENCY_STOP", settings.EMERGENCY_STOP, db)
     return {
         "status": "online",
         "agent_mode": settings.AGENT_MODE,
-        "emergency_stop": settings.EMERGENCY_STOP,
+        "emergency_stop": emergency_stop == "True",
         "version": settings.VERSION
     }
 
+async def get_sys_config(key: str, default: Any, db: AsyncSession) -> Any:
+    stmt = select(SystemConfig).where(SystemConfig.key == key)
+    res = (await db.execute(stmt)).scalar_one_or_none()
+    return res.value if res else str(default)
+
+async def set_sys_config(key: str, value: Any, db: AsyncSession):
+    stmt = select(SystemConfig).where(SystemConfig.key == key)
+    res = (await db.execute(stmt)).scalar_one_or_none()
+    if res:
+        res.value = str(value)
+    else:
+        db.add(SystemConfig(key=key, value=str(value)))
+    await db.commit()
+
+async def reset_daily_limits(db: AsyncSession):
+    """Zera o contador de posts de todas as contas se o dia mudou."""
+    stmt = select(PublishingAccount)
+    accounts = (await db.execute(stmt)).scalars().all()
+    for acc in accounts:
+        acc.posts_today = 0
+    await db.commit()
+    logger.info("Contadores diários de publicação resetados.")
+
 # --- STATS / VISÃO GERAL ---
 @app.get("/api/v1/dashboard/stats")
-async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
+async def get_dashboard_stats(db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     total_news = (await db.execute(select(func.count(NewsItem.id)))).scalar() or 0
     total_verified = (await db.execute(select(func.count(VerificationResult.id)))).scalar() or 0
     total_projects = (await db.execute(select(func.count(ContentProject.id)))).scalar() or 0
@@ -195,7 +221,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
     }
 
 # --- AÇÃO: COLETAR NOTÍCIAS AGORA ---
-@app.post("/api/v1/actions/trigger-discovery")
+@app.post("/api/v1/actions/trigger-discovery", dependencies=[Depends(require_admin)])
 async def trigger_discovery():
     """Coleta imediata de todas as fontes ativas (em paralelo, com GET condicional)."""
     report = await run_discovery(force=True)
@@ -212,7 +238,8 @@ async def trigger_discovery():
 async def list_news(
     limit: int = 50,
     status: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin)
 ):
     query = select(NewsItem).order_by(desc(NewsItem.collected_at)).limit(limit)
     if status and status != "ALL":
@@ -263,7 +290,7 @@ async def list_news(
 
 # --- AÇÃO: VERIFICAR NOTÍCIA INDIVIDUAL OU TODAS PENDENTES ---
 @app.post("/api/v1/actions/verify/{item_id}")
-async def verify_single_news(item_id: str, db: AsyncSession = Depends(get_db)):
+async def verify_single_news(item_id: str, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     stmt = select(NewsItem).where(NewsItem.id == item_id)
     item = (await db.execute(stmt)).scalar_one_or_none()
     if not item:
@@ -286,7 +313,7 @@ async def verify_single_news(item_id: str, db: AsyncSession = Depends(get_db)):
         "status": item.status
     }
 
-@app.post("/api/v1/actions/verify-all-pending")
+@app.post("/api/v1/actions/verify-all-pending", dependencies=[Depends(require_admin)])
 async def verify_all_pending(db: AsyncSession = Depends(get_db)):
     """Verifica automaticamente todas as notícias pendentes no sistema."""
     stmt = select(NewsItem).where(NewsItem.status == ProcessingStatus.PENDING).limit(100)
@@ -312,7 +339,7 @@ async def verify_all_pending(db: AsyncSession = Depends(get_db)):
     }
 
 # --- AÇÃO: DISPARAR PIPELINE AUTÔNOMO COMPLETO ---
-@app.post("/api/v1/actions/run-autonomous-pipeline")
+@app.post("/api/v1/actions/run-autonomous-pipeline", dependencies=[Depends(require_admin)])
 async def run_autonomous_pipeline_endpoint(limit: int = 30):
     """
     Executa o ciclo autônomo completo (Verificação -> Produção -> Publicação)
@@ -328,7 +355,7 @@ async def run_autonomous_pipeline_endpoint(limit: int = 30):
 
 # --- AÇÃO: PRODUZIR CONTEÚDO E ROTEIROS ---
 @app.post("/api/v1/actions/produce-content/{item_id}")
-async def produce_content_for_news(item_id: str, db: AsyncSession = Depends(get_db)):
+async def produce_content_for_news(item_id: str, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     stmt = select(NewsItem).where(NewsItem.id == item_id)
     item = (await db.execute(stmt)).scalar_one_or_none()
     if not item:
@@ -347,7 +374,7 @@ async def produce_content_for_news(item_id: str, db: AsyncSession = Depends(get_
 
 # --- AÇÃO: RENDERIZAR VÍDEO (SRT + MP4) ---
 @app.post("/api/v1/actions/render-video/{project_id}")
-async def render_video_endpoint(project_id: str, is_vertical: bool = False, db: AsyncSession = Depends(get_db)):
+async def render_video_endpoint(project_id: str, is_vertical: bool = False, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     stmt = select(ContentProject).where(ContentProject.id == project_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
     if not project:
@@ -378,7 +405,7 @@ async def render_video_endpoint(project_id: str, is_vertical: bool = False, db: 
 
 
 @app.get("/api/v1/content-projects/{project_id}/preview")
-async def get_content_preview(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db), key: str | None = Depends(key_header)):
+async def get_content_preview(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db), key: str | None = Depends(key_header), _=Depends(require_admin)):
     project = (await db.execute(select(ContentProject).where(ContentProject.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
@@ -399,7 +426,7 @@ async def get_content_preview(project_id: str, is_vertical: bool = True, db: Asy
 
 
 @app.get("/api/v1/content-projects/{project_id}/preview/video")
-async def get_preview_video(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db), key: str | None = Depends(key_header)):
+async def get_preview_video(project_id: str, is_vertical: bool = True, db: AsyncSession = Depends(get_db), key: str | None = Depends(key_header), _=Depends(require_admin)):
     project = (await db.execute(select(ContentProject).where(ContentProject.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado.")
@@ -414,7 +441,7 @@ async def get_preview_video(project_id: str, is_vertical: bool = True, db: Async
 
 # --- AÇÃO: DISPARAR PUBLICAÇÃO ---
 @app.post("/api/v1/actions/publish/{project_id}")
-async def publish_content(project_id: str, is_vertical: bool = False, db: AsyncSession = Depends(get_db)):
+async def publish_content(project_id: str, is_vertical: bool = False, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     stmt = select(ContentProject).where(ContentProject.id == project_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
     if not project:
@@ -426,12 +453,39 @@ async def publish_content(project_id: str, is_vertical: bool = False, db: AsyncS
 
     published_results = []
     for acc in accounts:
+        # Chave de idempotência determinística: garante que o mesmo conteúdo 
+        # não seja publicado repetidamente na mesma conta.
+        idempotency_key = f"pub_{project.id}_{acc.id}"
+        
+        # Verifica se já existe um job para esta combinação
+        stmt_exist = select(PublishingJob).where(PublishingJob.idempotency_key == idempotency_key)
+        existing_job = (await db.execute(stmt_exist)).scalar_one_or_none()
+        
+        if existing_job:
+            if existing_job.status == ProcessingStatus.PUBLISHED:
+                published_results.append({
+                    "platform": acc.platform,
+                    "account": acc.account_name,
+                    "status": existing_job.status,
+                    "details": {"success": True, "post_url": existing_job.post_url, "note": "Reutilizado de publicação anterior"}
+                })
+                continue
+            elif existing_job.status not in [ProcessingStatus.FAILED, ProcessingStatus.CANCELLED]:
+                # Job ainda em processamento ou aguardando
+                published_results.append({
+                    "platform": acc.platform,
+                    "account": acc.account_name,
+                    "status": existing_job.status,
+                    "details": {"success": False, "note": "Job já em andamento."}
+                })
+                continue
+        
         job = PublishingJob(
             id=str(uuid.uuid4()),
             content_project_id=project.id,
             account_id=acc.id,
             status=ProcessingStatus.READY_TO_PUBLISH,
-            idempotency_key=f"job_{project.id}_{acc.id}_{int(datetime.utcnow().timestamp())}"
+            idempotency_key=idempotency_key
         )
         db.add(job)
         await db.commit()
@@ -456,7 +510,7 @@ async def publish_content(project_id: str, is_vertical: bool = False, db: AsyncS
 class ModeUpdate(BaseModel):
     mode: str
 
-@app.post("/api/v1/system/agent-mode")
+@app.post("/api/v1/system/agent-mode", dependencies=[Depends(require_admin)])
 async def update_agent_mode(data: ModeUpdate):
     if data.mode not in ["SIMULATION", "ASSISTED", "AUTONOMOUS"]:
         raise HTTPException(status_code=400, detail="Modo inválido. Escolha SIMULATION, ASSISTED ou AUTONOMOUS.")
@@ -468,7 +522,7 @@ async def update_agent_mode(data: ModeUpdate):
     }
 
 # --- AÇÃO: PARADA DE EMERGÊNCIA ---
-@app.post("/api/v1/system/emergency-stop")
+@app.post("/api/v1/system/emergency-stop", dependencies=[Depends(require_admin)])
 async def toggle_emergency_stop(active: bool):
     settings.EMERGENCY_STOP = active
     return {
@@ -478,19 +532,19 @@ async def toggle_emergency_stop(active: bool):
 
 # --- LISTAR FONTES ---
 @app.get("/api/v1/sources")
-async def list_sources(db: AsyncSession = Depends(get_db)):
+async def list_sources(db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     result = await db.execute(select(Source))
     return result.scalars().all()
 
 # --- LISTAR CATEGORIAS ---
 @app.get("/api/v1/categories")
-async def list_categories(db: AsyncSession = Depends(get_db)):
+async def list_categories(db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     result = await db.execute(select(Category))
     return result.scalars().all()
 
 # --- CONTAS DE PUBLICAÇÃO ---
 @app.get("/api/v1/publishing-accounts")
-async def list_publishing_accounts(db: AsyncSession = Depends(get_db)):
+async def list_publishing_accounts(db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     result = await db.execute(select(PublishingAccount).order_by(PublishingAccount.created_at.desc()))
     accounts = result.scalars().all()
     return [
@@ -509,7 +563,7 @@ async def list_publishing_accounts(db: AsyncSession = Depends(get_db)):
     ]
 
 @app.post("/api/v1/publishing-accounts/{account_id}/reset-counter")
-async def reset_account_counter(account_id: str, new_limit: Optional[int] = 50, db: AsyncSession = Depends(get_db)):
+async def reset_account_counter(account_id: str, new_limit: Optional[int] = 50, db: AsyncSession = Depends(get_db), _=Depends(require_admin)):
     account = (await db.execute(select(PublishingAccount).where(PublishingAccount.id == account_id))).scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Conta não encontrada.")

@@ -1,6 +1,6 @@
 """Research, scoring and editorial checks for the original-content module."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import ipaddress
 import json
@@ -27,13 +27,37 @@ def topic_key(title: str):
     return hashlib.sha256(normalize_text(" ".join(title.split())).encode()).hexdigest()
 
 
-def allowed_source(url: str):
+DYNAMIC_SOURCE_HOSTS: set[str] = set()
+
+
+def get_allowed_hosts() -> set[str]:
+    return set(settings.FACTORY_SOURCE_HOSTS) | DYNAMIC_SOURCE_HOSTS
+
+
+def register_source_host(host: str) -> str:
+    host = host.strip().lower()
+    if not host or "/" in host or ":" in host or " " in host:
+        raise FactoryError("Host inválido. Forneça apenas o domínio (ex: portal.exemplo.com).")
+    is_ip = False
+    try:
+        ipaddress.ip_address(host)
+        is_ip = True
+    except ValueError:
+        is_ip = False
+    if is_ip:
+        raise FactoryError("Endereços IP não são permitidos como hosts.")
+    DYNAMIC_SOURCE_HOSTS.add(host)
+    return host
+
+
+def allowed_source(url: str, custom_hosts: set[str] | None = None):
     url = validated_source_url(url)
     if not url:
         raise FactoryError("URL de fonte inválida.")
     parsed = urlsplit(url)
+    allowed = custom_hosts if custom_hosts is not None else get_allowed_hosts()
     # Exact hosts only: no arbitrary subdomains, credentials, ports or redirects.
-    if parsed.scheme != "https" or parsed.port not in (None, 443) or parsed.hostname not in settings.FACTORY_SOURCE_HOSTS:
+    if parsed.scheme != "https" or parsed.port not in (None, 443) or parsed.hostname not in allowed:
         raise FactoryError("A fonte precisa usar HTTPS e um domínio permitido em FACTORY_SOURCE_HOSTS.")
     try:
         ipaddress.ip_address(parsed.hostname)
@@ -91,7 +115,7 @@ class ResearchService:
                     raise FactoryError("Instruções suspeitas detectadas na fonte; revisão necessária.")
                 sources.append({
                     "url": url, "title": page_title[:300], "excerpt": excerpt,
-                    "retrieved_at": datetime.utcnow().isoformat(),
+                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
                     "text_sha256": hashlib.sha256(excerpt.encode()).hexdigest(),
                     "rights": "citation_only_not_media_license",
                 })

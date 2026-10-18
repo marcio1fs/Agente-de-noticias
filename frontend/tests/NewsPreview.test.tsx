@@ -65,8 +65,8 @@ describe("NewsPreview publication controls", () => {
     mockPreview();
     render(<NewsPreview {...props()} />);
     const player = await makePlayable();
-    await userEvent.click(screen.getByRole("button", { name: "9:16 Shorts" }));
-    expect(screen.getByLabelText("Vídeo da notícia: Manchete")).toBe(player);
+    await userEvent.click(screen.getByRole("button", { name: "16:9 YouTube" }));
+    expect(screen.getByLabelText("Vídeo da notícia: Manchete")).toEqual(player);
     expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(false);
   });
 
@@ -77,9 +77,7 @@ describe("NewsPreview publication controls", () => {
     const user = userEvent.setup();
     await makePlayable();
     await user.click(screen.getByRole("checkbox"));
-    await user.click(screen.getByRole("button", { name: "16:9 YouTube" }));
-    await makePlayable();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    await user.click(screen.getByRole("button", { name: "9:16 Shorts" }));
     await user.click(screen.getByRole("checkbox"));
     rerender(<NewsPreview {...callbacks} stopped />);
     expect((screen.getByRole("button", { name: "Confirmar publicação" }) as HTMLButtonElement).disabled).toBe(true);

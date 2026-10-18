@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -82,7 +82,7 @@ async def test_original_end_to_end_with_mocked_providers(db, monkeypatch, tmp_pa
     assert project.news_item_id is None  # Never creates a fake NewsItem.
     assert project.social_captions["_factory"] is True
     assert await project_source_url(project, db) == URL
-    assert (await db.get(FactoryUsage, datetime.utcnow().strftime("%Y-%m-%d"))).calls == 1
+    assert (await db.get(FactoryUsage, datetime.now(timezone.utc).strftime("%Y-%m-%d"))).calls == 1
     approval = Approval(reviewer="Editora", facts_checked=True, rights_checked=True, script_reviewed=True)
     await factory.approve(production.id, approval)
     assert production.phase == "APPROVED"
@@ -167,7 +167,7 @@ async def test_retry_has_backoff_and_charges_each_attempt(db, monkeypatch):
     await factory.generate(production.id)
     assert production.phase == "QUEUED"
     assert production.attempts == 1
-    assert production.next_retry_at > datetime.utcnow()
+    assert production.next_retry_at > datetime.now(timezone.utc)
     assert await factory.process_next() == {"processed": False}
 
 
@@ -283,3 +283,35 @@ async def test_module_disabled_returns_503(db, monkeypatch):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.get("/api/v1/factory/productions", headers={"X-Factory-Key": settings.FACTORY_ADMIN_KEY})).status_code == 503
         assert (await client.get("/api/v1/factory/status")).json()["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_dynamic_host_registration_and_webhook_notification(db, monkeypatch):
+    from app.modules.original_factory.services import register_source_host, get_allowed_hosts
+    registered = register_source_host("g1.globo.com")
+    assert registered == "g1.globo.com"
+    assert "g1.globo.com" in get_allowed_hosts()
+
+    with pytest.raises(FactoryError, match="IP"):
+        register_source_host("192.168.1.1")
+
+    posted_events = []
+    def mock_transport_handler(request: httpx.Request):
+        import json as _json
+        body = _json.loads(request.content.decode("utf-8")) if request.content else {}
+        posted_events.append({"url": str(request.url), "json": body})
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(settings, "FACTORY_NOTIFICATION_WEBHOOK", "https://webhook.internal/test")
+    monkeypatch.setattr(ResearchService, "fetch", AsyncMock(return_value=[SOURCE]))
+    monkeypatch.setattr(OriginalScriptService, "generate", AsyncMock(return_value=valid_draft()))
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(mock_transport_handler), **kwargs))
+
+    factory = OriginalContentFactory(db)
+    production = await create(factory)
+    await factory.generate(production.id)
+    assert len(posted_events) >= 1
+    assert posted_events[0]["json"]["event"] == "REVIEW_REQUIRED"
+    assert posted_events[0]["json"]["production_id"] == production.id

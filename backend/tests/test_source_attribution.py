@@ -37,6 +37,11 @@ async def test_real_upload_includes_original_database_source(monkeypatch):
     monkeypatch.setattr(settings, "EMERGENCY_STOP", False)
     monkeypatch.setattr(settings, "YOUTUBE_CLIENT_ID", "test")
     monkeypatch.setattr(settings, "YOUTUBE_CLIENT_SECRET", "test")
+    
+    # Mock get_sys_config to avoid DB mock complexity
+    from app.main import get_sys_config
+    monkeypatch.setattr("app.main.get_sys_config", AsyncMock(return_value="False"))
+    
     db = AsyncMock()
     db.get.return_value = NewsItem(url=SOURCE)
     project = ContentProject(id="project", news_item_id="news", headline="Manchete", editorial_summary="Resumo", social_captions={})
@@ -55,6 +60,11 @@ async def test_real_upload_includes_original_database_source(monkeypatch):
 async def test_simulation_reports_source_and_description_without_upload(monkeypatch):
     monkeypatch.setattr(settings, "AGENT_MODE", "SIMULATION")
     monkeypatch.setattr(settings, "EMERGENCY_STOP", False)
+    
+    # Mock get_sys_config to avoid DB mock complexity
+    from app.main import get_sys_config
+    monkeypatch.setattr("app.main.get_sys_config", AsyncMock(return_value="False"))
+    
     db = AsyncMock()
     db.get.return_value = NewsItem(url=SOURCE)
     upload = AsyncMock()
@@ -71,6 +81,11 @@ async def test_simulation_reports_source_and_description_without_upload(monkeypa
 async def test_no_source_blocks_publication(monkeypatch):
     monkeypatch.setattr(settings, "AGENT_MODE", "AUTONOMOUS")
     monkeypatch.setattr(settings, "EMERGENCY_STOP", False)
+    
+    # Mock get_sys_config to avoid DB mock complexity
+    from app.main import get_sys_config
+    monkeypatch.setattr("app.main.get_sys_config", AsyncMock(return_value="False"))
+    
     db = AsyncMock()
     db.get.return_value = None
     acc = account()
